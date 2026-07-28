@@ -80,9 +80,15 @@ A run that completes successfully but takes noticeably longer than a comparable 
 
 ```bash
 # If you have shell access to the node while the job is running (or can log this proactively
-# for next time — see "extending" note below):
-nvidia-smi --query-gpu=temperature.gpu,clocks_throttle_reasons.active,clocks.sm,clocks.max.sm --format=csv,noheader
+# for next time — see "extending" note below). temperature.gpu and clocks.sm/clocks.max.sm are
+# near-universally supported; clocks_throttle_reasons.* varies by GPU/driver — query it
+# separately and don't let an unsupported field block reading the rest:
+nvidia-smi --query-gpu=temperature.gpu,clocks.sm,clocks.max.sm --format=csv,noheader
+nvidia-smi --query-gpu=clocks_throttle_reasons.active --format=csv,noheader 2>&1 \
+  || echo "clocks_throttle_reasons.active not supported here — fall back to temp + clocks.sm vs clocks.max.sm gap as the throttling signal"
 ```
+
+**Not yet verified against real hardware.** These exact `nvidia-smi` field names come from documented NVML query fields, not from a run that's actually succeeded on this repo's own workstation — `nvidia-smi` has been stuck in the driver/library-mismatch state (§1.6) the entire time these skills were written. Treat the field list as a starting point to confirm with `nvidia-smi --help-query-gpu` (once the mismatch is fixed) rather than as a guaranteed-working command.
 
 | Observation | Likely cause | Suggested fix |
 |---|---|---|

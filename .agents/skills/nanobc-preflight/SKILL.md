@@ -123,8 +123,18 @@ fi
 ### e.1) Temperature / throttling sanity check (record even when nvidia-smi works fine)
 
 ```bash
-nvidia-smi --query-gpu=temperature.gpu,temperature.memory,clocks_throttle_reasons.active,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_thermal_slowdown --format=csv,noheader
+# temperature.gpu is near-universally supported; the rest (temperature.memory,
+# clocks_throttle_reasons.*) vary by GPU/driver/NVML version and have NOT been
+# confirmed to work on this exact host — query them one at a time and fall back
+# gracefully rather than assume the combined query below always succeeds:
+nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader
+nvidia-smi --query-gpu=clocks_throttle_reasons.active --format=csv,noheader 2>&1 \
+  || echo "clocks_throttle_reasons.active not supported on this driver/GPU — skip, note as 'not available' in rationale, don't fail preflight over it"
+nvidia-smi --query-gpu=temperature.memory --format=csv,noheader 2>&1 \
+  || echo "temperature.memory not supported here — same handling"
 ```
+
+If any field returns `[Not Supported]` (a normal NVML response, not an error) or the whole call fails non-zero (an unsupported-field-in-combined-query edge case on some driver versions), treat it as "not available on this host" and move on — do not block preflight on a missing optional field. Only `temperature.gpu` failing to return at all is worth escalating (that usually means the driver/library mismatch in §2e, not a missing-field issue).
 
 | Observation | Note in rationale |
 |---|---|
