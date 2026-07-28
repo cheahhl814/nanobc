@@ -134,6 +134,12 @@ nvidia-smi --query-gpu=temperature.gpu,temperature.memory,clocks_throttle_reason
 
 This is a **snapshot at preflight time**, not continuous monitoring — Dorado runs can take hours, and thermal throttling is a sustained-load phenomenon that a single check before the run won't catch. See `nanobc-debug` §1.5 for what to check if a run finishes slower than expected or a temperature-related failure shows up mid-run.
 
+**Known local workstation GPU** (this Threadripper PRO 7975WX box, PCI `10de:2bb4`): **NVIDIA RTX PRO 6000 Blackwell Max-Q, 96 GB VRAM, 300 W TDP**. Two things this changes vs. the generic guidance above:
+
+- **CUDA OOM is very unlikely here.** 96 GB is far more than any current Dorado model + batch size needs, so if a CUDA-OOM error does show up on this host, look harder at a config/params bug (e.g. an accidental `--gres` MIG-slice limit) before assuming the model is just "too big" — that diagnosis fits a shared/MIG-partitioned card, not this one.
+- **"Max-Q" is a lower-power, quieter-cooling variant (300 W vs. the RTX PRO 6000's standard ~600 W).** It's tuned to run cooler/quieter under bursty graphics loads, but Dorado basecalling is a long, steady, near-100%-utilization load — a different thermal profile than what Max-Q cooling is typically validated against. Take the §2e.1 temperature/throttle snapshot more seriously on this host than you would on a full-power card, and if `nanobc-debug` §1.6 ever shows throttling here, that's plausible, not surprising.
+- The `nextflow.config` SLURM `dorado` label hardcodes `--gres=gpu:3g.39gb:1` — an A100-80GB MIG-slice profile name. That gres string **does not describe this workstation's GPU at all**; it was written for a different cluster/card. If this workstation is ever registered as a SLURM node, don't assume that gres string will match — go through the §2.5c/d partition/gres check regardless of how confident the hardcoded value looks.
+
 ### f) Disk space check
 
 ```bash

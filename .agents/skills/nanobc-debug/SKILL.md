@@ -92,6 +92,8 @@ nvidia-smi --query-gpu=temperature.gpu,clocks_throttle_reasons.active,clocks.sm,
 
 Nextflow's own trace (`nextflow log -f "process,name,realtime,hash" "$RUN_DIR"`) gives you the actual wall-clock duration to compare against prior runs of the same process — use that as your "slower than expected" baseline, not a guessed number.
 
+**On this Threadripper PRO 7975WX workstation** (local GPU: NVIDIA RTX PRO 6000 Blackwell Max-Q, 96 GB, 300 W TDP — see `nanobc-preflight` §2e.1): throttling here is more plausible than on a full-power RTX PRO 6000, since "Max-Q" trades cooling headroom for lower power/noise and isn't validated against Dorado's kind of long, steady, near-100%-utilization load the way it is against bursty graphics workloads. Weight the throttling hypothesis higher than usual on this specific host; on a different, non-Max-Q card, weight it lower and check the driver-mismatch and config-mismatch hypotheses first.
+
 **This pipeline has no automated fan control** (and generally can't — fan curves are managed by the GPU firmware/driver, not something a Nextflow process can reach into) and **no continuous temperature logging** — `nanobc-preflight`'s temperature check is a one-time snapshot before the run starts. If throttling turns out to be a recurring problem, the durable fix is external to this repo (better cooling, a different node, or a cron-style `nvidia-smi --query-gpu=... --format=csv -l 60 >> gpu_temp.log` left running alongside the job) — not something to bolt onto the pipeline's Nextflow processes themselves.
 
 ## 2. Signature library (extend as you encounter new failures)

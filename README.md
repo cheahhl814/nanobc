@@ -27,3 +27,7 @@ See [`nf-nanopore-basecalling/README.md`](nf-nanopore-basecalling/README.md) for
 ## The agentic interface
 
 See [`.agents/skills/README.md`](.agents/skills/README.md) for the skill list (`nanobc-run`, `nanobc-preflight`, `nanobc-debug`, `nanobc-qc`) and how they resolve the pipeline location (`$NANOBC_HOME`, defaulting to the sibling `nf-nanopore-basecalling/` directory in this repo).
+
+## Known local host
+
+This repo's `local` profile has been run on a Threadripper PRO 7975WX workstation with an **NVIDIA RTX PRO 6000 Blackwell Max-Q (96 GB VRAM, 300 W TDP)** — PCI `10de:2bb4`. Notes specific to this card (CUDA-OOM is unlikely given the VRAM headroom; Max-Q's lower power/cooling target makes thermal throttling worth checking under Dorado's sustained load; the SLURM `dorado` label's hardcoded `--gres=gpu:3g.39gb:1` is an A100 MIG profile and does **not** describe this card) are in `nanobc-preflight` §2e.1 and `nanobc-debug` §1.6.
