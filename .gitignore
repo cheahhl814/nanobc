@@ -1,0 +1,17 @@
+# Nextflow runtime artifacts
+.nextflow/
+.nextflow.log*
+work/
+results/
+output_*/
+*.checkpoint
+
+# pixi
+.pixi/
+nf-nanopore-basecalling/envs/*/.pixi/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
