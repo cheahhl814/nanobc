@@ -1,6 +1,6 @@
 ---
 name: nanobc-debug
-description: Interpret a failed nf-nanopore-basecalling Nextflow run, including CUDA/GPU errors, Dorado model/kit errors, pixi env issues, and SLURM partition/gres mismatches. Use when nextflow log shows ERR, exit status 1, exit 137 (OOM-kill), or a Dorado/samtools/seqtk/transfer process failed. Triggers: "basecalling failed", "dorado error", "why did the pipeline fail", "nextflow failure", "nanobc debug", "CUDA out of memory dorado", "pixi command not found", "unknown barcode fastq empty", "rsync transfer failed".
+description: Interpret a failed nf-nanopore-basecalling Nextflow run, including CUDA/GPU errors, NVIDIA driver/library version mismatches, GPU thermal throttling, Dorado model/kit errors, pixi env issues, and SLURM partition/gres mismatches. Use when nextflow log shows ERR, exit status 1, exit 137 (OOM-kill), a Dorado/samtools/seqtk/transfer process failed, or a run is unexpectedly slow. Triggers: "basecalling failed", "dorado error", "why did the pipeline fail", "nextflow failure", "nanobc debug", "CUDA out of memory dorado", "pixi command not found", "unknown barcode fastq empty", "rsync transfer failed", "nvidia-smi driver library version mismatch", "gpu overheating", "dorado run slower than usual", "gpu throttling".
 ---
 
 # nanobc-debug — nf-nanopore-basecalling failure interpreter
@@ -54,6 +54,46 @@ USER_CONFIG="$RUN_DIR/nextflow.config.${BETA_PROFILE:-slurm}.local"
 - **Exit 137 (SIGKILL)** on the `dorado` label → almost always an OOM-kill, either host RAM (40 GB requested) or **GPU** memory (CUDA OOM — see below). Check both before concluding.
 - **CUDA error inside `.command.err`** (not a SLURM scheduling issue) → see the Dorado table below.
 
+## 1.6 Driver/library mismatch and thermal throttling
+
+Two GPU-health failure modes that look nothing like a normal Dorado error and are easy to misdiagnose as a pipeline/config bug:
+
+### Driver/library version mismatch
+
+```bash
+nvidia-smi 2>&1 | head -3
+# "Failed to initialize NVML: Driver/library version mismatch" is the tell
+```
+
+This means the installed userspace driver package is newer (or older) than the kernel module currently loaded — typically because a driver update was installed but the machine/node hasn't rebooted (or the module hasn't been reloaded) since. It affects **every** GPU job on that node, not just this run — if this shows up, don't spend time on Dorado-specific hypotheses first.
+
+```bash
+cat /proc/driver/nvidia/version 2>/dev/null | head -1   # loaded kernel module version
+dpkg -l 2>/dev/null | awk '/nvidia-driver-[0-9]+/ {print $2, $3}'   # installed package version
+```
+
+Fix: reboot the node, or (if nothing else is using the GPU) `sudo rmmod nvidia_uvm nvidia_drm nvidia_modeset nvidia && sudo modprobe nvidia`. On a shared SLURM node you may not have permission to do this yourself — report it to the cluster admin rather than working around it in the pipeline.
+
+### Thermal throttling mid-run
+
+A run that completes successfully but takes noticeably longer than a comparable prior run (same model, similar pod5 volume) — with no error in `.command.err` — is a signature of throttling, not a bug:
+
+```bash
+# If you have shell access to the node while the job is running (or can log this proactively
+# for next time — see "extending" note below):
+nvidia-smi --query-gpu=temperature.gpu,clocks_throttle_reasons.active,clocks.sm,clocks.max.sm --format=csv,noheader
+```
+
+| Observation | Likely cause | Suggested fix |
+|---|---|---|
+| `clocks_throttle_reasons.active` shows `SW Thermal Slowdown` / `HW Slowdown`, `clocks.sm` well below `clocks.max.sm` | GPU is thermally throttling under sustained Dorado load | Check chassis airflow/dust/fan health physically; on a shared cluster node, report to admins — this isn't fixable from the pipeline side |
+| Temperature climbs steadily across the run and plateaus near the card's throttle point | Cooling is marginal for sustained 100% GPU utilization (basecalling is a long, steady load, unlike bursty graphics workloads) | Same as above; consider running on a different node/partition if this recurs |
+| No throttle reasons active, temp stable, but runtime still longer than expected | Not a thermal issue — check `nanobc-preflight`'s "do not fabricate a throughput number" note; compare against your own prior runs, not an assumed baseline | — |
+
+Nextflow's own trace (`nextflow log -f "process,name,realtime,hash" "$RUN_DIR"`) gives you the actual wall-clock duration to compare against prior runs of the same process — use that as your "slower than expected" baseline, not a guessed number.
+
+**This pipeline has no automated fan control** (and generally can't — fan curves are managed by the GPU firmware/driver, not something a Nextflow process can reach into) and **no continuous temperature logging** — `nanobc-preflight`'s temperature check is a one-time snapshot before the run starts. If throttling turns out to be a recurring problem, the durable fix is external to this repo (better cooling, a different node, or a cron-style `nvidia-smi --query-gpu=... --format=csv -l 60 >> gpu_temp.log` left running alongside the job) — not something to bolt onto the pipeline's Nextflow processes themselves.
+
 ## 2. Signature library (extend as you encounter new failures)
 
 Always read the actual error before concluding — never pattern-match blindly.
@@ -68,6 +108,8 @@ Always read the actual error before concluding — never pattern-match blindly.
 | `Unknown kit` / `Kit ... not recognized` / kit-name parse error | `--kitname` (`params.kitname`) typo'd or not a real ONT kit code | Re-check spelling against the sequencing run's actual kit; re-run `nanobc-preflight` §2d |
 | Command hangs with no GPU utilization (check `nvidia-smi` on the node) | GPU allocated but Dorado defaulting to CPU fallback, or `-x cuda:all` failed silently to find a device | Check `.command.log` for a fallback warning; confirm driver/toolkit versions match what Dorado's release expects |
 | `dorado: command not found` in `.command.err` | `params.dorado_bin` not resolvable from the compute node (different `$PATH` than the login/submission node) | Use an absolute `--dorado_bin` path shared across all nodes (e.g. on shared storage), not a bare name relying on `$PATH` |
+| `Failed to initialize NVML: Driver/library version mismatch` (from a `nvidia-smi` call, or Dorado itself fails to see the GPU with no clearer message) | Kernel module out of sync with installed userspace driver package on this node — see §1.6 | Reboot the node (or `modprobe` reload if nothing else is using the GPU); this is a node-level fix, not a pipeline/params fix |
+| Job completes but takes much longer than a comparable prior run, no error in `.command.err` | Possible thermal throttling — see §1.6 | Check `nvidia-smi --query-gpu=temperature.gpu,clocks_throttle_reasons.active` on the node if still accessible; compare wall-clock via `nextflow log` against prior runs |
 | Exit 137, GPU memory looked fine | Host RAM exceeded (SLURM `memory = '40 GB'` on `nextflow.config`) | Bump `memory` for the `dorado` label in a `nextflow.config.<env>.local` override (`withLabel:`, not `withName:`) |
 
 ### samtools / seqtk (pixi-managed: `bam2fq`, `concat_fastq`, `total_bases`)

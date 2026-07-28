@@ -1,6 +1,6 @@
 ---
 name: nanobc-preflight
-description: Prepare a Nextflow params.json for nf-nanopore-basecalling from a pod5 folder, a Dorado model, and a kit name, plus an optional machine-specific nextflow.config override. Use when the user has raw pod5 files but has not yet decided --kitname / --model / --dorado_bin / execution profile. Triggers: "set up nanopore basecalling", "preflight basecalling", "what params for dorado pipeline", "basecalling params.json", "nanobc preflight", "nextflow config local machine basecalling", "fix slurm partition dorado", "which dorado model".
+description: Prepare a Nextflow params.json for nf-nanopore-basecalling from a pod5 folder, a Dorado model, and a kit name, plus an optional machine-specific nextflow.config override. Validates the GPU is actually usable (nvidia-smi runs cleanly, no driver/library version mismatch, no pre-existing thermal throttling) before handing off to a run. Use when the user has raw pod5 files but has not yet decided --kitname / --model / --dorado_bin / execution profile, or wants to confirm the GPU is healthy before a long run. Triggers: "set up nanopore basecalling", "preflight basecalling", "what params for dorado pipeline", "basecalling params.json", "nanobc preflight", "nextflow config local machine basecalling", "fix slurm partition dorado", "which dorado model", "check gpu before running dorado", "is my gpu ok for basecalling".
 ---
 
 # nanobc-preflight — nf-nanopore-basecalling parameter preparation
@@ -91,13 +91,48 @@ esac
 
 ```bash
 if command -v nvidia-smi >/dev/null 2>&1; then
-  nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv
+  nvidia-smi --query-gpu=name,memory.total,memory.free,temperature.gpu,clocks_throttle_reasons.active --format=csv
 else
   echo "WARNING: nvidia-smi not found on this host. Dorado basecaller -x cuda:all requires a CUDA-capable GPU."
 fi
 ```
 
 If this preflight is running on a login node that doesn't itself have a GPU (normal for SLURM), that's fine — the check matters on the node the job actually lands on. Note it as "not checked (submitted via SLURM)" in the rationale rather than failing.
+
+**If `nvidia-smi` itself fails to run** (rather than just "not found"), don't treat that as "no GPU" — it usually means the GPU exists but the driver is broken:
+
+```bash
+if command -v nvidia-smi >/dev/null 2>&1 && ! nvidia-smi >/dev/null 2>&1; then
+  echo "nvidia-smi is present but failed to run — checking for a driver/library version mismatch:"
+  nvidia-smi 2>&1 | head -3
+
+  LOADED_VERSION=$(cat /proc/driver/nvidia/version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+  INSTALLED_PKG=$(dpkg -l 2>/dev/null | awk '/nvidia-driver-[0-9]+/ {print $2, $3}')
+  echo "Loaded kernel module version: ${LOADED_VERSION:-unknown}"
+  echo "Installed driver package:     ${INSTALLED_PKG:-unknown (not a dpkg-managed install, or check rpm/pacman)}"
+  echo ""
+  echo "A mismatch here (installed userspace libs newer/older than the loaded kernel module)"
+  echo "almost always means a driver package was updated without reloading the kernel module."
+  echo "Fix: reboot, or if nothing else is using the GPU:"
+  echo "  sudo rmmod nvidia_uvm nvidia_drm nvidia_modeset nvidia && sudo modprobe nvidia"
+fi
+```
+
+**Do not proceed to write `params.json` with a `local` profile** if `nvidia-smi` cannot run at all on this host — Dorado will fail immediately with "no CUDA-capable device is detected" or similar. Surface the mismatch/fix to the user and get it resolved (or confirm they're submitting to a different, working GPU node via `slurm`) before finishing preflight.
+
+### e.1) Temperature / throttling sanity check (record even when nvidia-smi works fine)
+
+```bash
+nvidia-smi --query-gpu=temperature.gpu,temperature.memory,clocks_throttle_reasons.active,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_thermal_slowdown --format=csv,noheader
+```
+
+| Observation | Note in rationale |
+|---|---|
+| Temp comfortably below the card's throttle point (check `nvidia-smi -q -d TEMPERATURE` for the card's own `Slowdown Temp`/`Shutdown Temp` thresholds — these vary by model, don't assume a fixed number), no throttle reasons active | ✅ normal |
+| `clocks_throttle_reasons.active` shows `SW Thermal Slowdown` or `HW Slowdown` | ⚠️ GPU is already throttling *before the run even starts* — likely a airflow/dust/fan problem in the chassis, worth checking physically before committing a long basecalling job to it |
+| `nvidia-smi` reports a temperature but the host has no fan-speed sensor exposed (`sensors` shows nothing GPU-related) | note only — most workstation/server GPUs manage their own fan curve internally and don't expose a controllable fan-speed knob to the OS; this is expected, not a defect |
+
+This is a **snapshot at preflight time**, not continuous monitoring — Dorado runs can take hours, and thermal throttling is a sustained-load phenomenon that a single check before the run won't catch. See `nanobc-debug` §1.5 for what to check if a run finishes slower than expected or a temperature-related failure shows up mid-run.
 
 ### f) Disk space check
 
@@ -240,7 +275,9 @@ Pipeline:  $NANOBC_HOME (commit <hash if available>)
 - dorado: <path>, version=<dorado --version output, or "not found — resolve before running">
 - model: <path> (<exists|MISSING>)
 - kitname: <value> → routes to <LSK path | barcode-demux path>
-- gpu (local check only): <nvidia-smi summary, or "not checked — submitted via SLURM">
+- gpu (local check only): <nvidia-smi name/memory summary, or "not checked — submitted via SLURM">
+- gpu driver check: <nvidia-smi ran cleanly | driver/library version mismatch found: loaded=<X> installed=<Y> — resolved by reboot/modprobe before running>
+- gpu temperature/throttle (snapshot): <temp>°C, throttle_reasons=<none|list> (see nanobc-preflight §2e.1; one-time check, not continuous monitoring)
 - disk: <free space at outdir>
 
 ## Environment
