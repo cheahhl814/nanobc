@@ -1,6 +1,6 @@
-# nf-nanopore-basecalling-agents
+# nanobc
 
-A Nextflow pipeline for Dorado-based Nanopore basecalling, barcode demultiplexing, and base-count QC, paired with a set of agentic skills that operate around the pipeline.
+A Nextflow pipeline for Dorado-based Nanopore basecalling, barcode demultiplexing, and output QC, paired with a set of agentic skills that operate around the pipeline.
 
 ## What's in this repo
 
@@ -30,4 +30,4 @@ See [`.agents/skills/README.md`](.agents/skills/README.md) for the skill list (`
 
 ## Known local host
 
-This repo's `local` profile has been run on a Threadripper PRO 7975WX workstation with an **NVIDIA RTX PRO 6000 Blackwell Max-Q (96 GB VRAM, 300 W TDP)** — PCI `10de:2bb4`. Notes specific to this card (CUDA-OOM is unlikely given the VRAM headroom; Max-Q's lower power/cooling target makes thermal throttling worth checking under Dorado's sustained load; the SLURM `dorado` label's hardcoded `--gres=gpu:3g.39gb:1` is an A100 MIG profile and does **not** describe this card) are in `nanobc-preflight` §2e.1 and `nanobc-debug` §1.6.
+The `local` profile targets a CUDA-capable workstation GPU with large VRAM. Card-specific runbook notes (why CUDA-OOM is unlikely given the VRAM headroom, how to check thermal throttling under Dorado's sustained load, and why the shipped SLURM `clusterOptions` are placeholders that may not match your cluster) live in the skill files: `nanobc-preflight` §2e.1 and `nanobc-debug` §1.6.

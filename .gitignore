@@ -15,3 +15,19 @@ nf-nanopore-basecalling/envs/*/.pixi/
 .idea/
 .vscode/
 *.swp
+
+# Per-run artifacts (run dirs are local audit trails, never pushed)
+runs/
+
+# Machine-specific run artifacts landing in the pipeline / run dirs
+nextflow.config.*.local
+nextflow.config.local
+params.json
+params.rationale.md
+progress.log
+diagnosis.md
+report.md
+gpu_temp.log
+
+# Per-host GPU inventory (machine-specific, never pushed)
+gpu-host-notes.md
