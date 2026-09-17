@@ -58,7 +58,7 @@ if (missing) {
 }
 
 // Module inclusion
-include { dorado_basecall_lsk; transfer; dorado_basecall; bam2fq; concat_fastq; total_bases } from "./modules/dorado.nf"
+include { dorado_basecall_lsk; transfer; dorado_basecall; bam2fq } from "./modules/dorado.nf"
 
 workflow {
   pod5_ch = Channel.fromPath(params.pod5, checkIfExists: true)
@@ -72,17 +72,5 @@ workflow {
   } else {
     dorado_basecall(pod5_ch)
     bam2fq(dorado_basecall.out.bam)
-
-    // Dynamic per-barcode grouping across pod5 chunks. Snakemake needed a
-    // `checkpoint` here to re-plan the DAG after seeing which barcodes were
-    // produced; Nextflow's dataflow model discovers this naturally from the
-    // files that are actually emitted.
-    barcode_fastqs = bam2fq.out.fastqs
-      .transpose()
-      .map { meta, fq -> [ fq.name.replaceAll(/\.fastq\.gz$/, ''), fq ] }
-      .groupTuple()
-
-    concat_fastq(barcode_fastqs)
-    total_bases(concat_fastq.out.fastq.collect())
   }
 }

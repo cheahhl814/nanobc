@@ -17,6 +17,7 @@ process dorado_basecall_lsk {
 
   script:
   """
+  set -o pipefail
   ${params.dorado_bin} basecaller -x "cuda:all" \
     --emit-fastq ${params.model} ${pod5} | gzip > ${meta.id}.fastq.gz
   """
@@ -69,6 +70,7 @@ process dorado_basecall {
 process bam2fq {
   tag "${meta.id}"
   label 'samtools'
+  publishDir "${params.outdir}/fastq", mode: 'copy'
   errorStrategy 'retry'
   maxRetries 2
 
@@ -80,6 +82,7 @@ process bam2fq {
 
   script:
   """
+  set -o pipefail
   mkdir -p fastq_out
 
   pixi run --manifest-path ${baseDir}/envs/samtools/pixi.toml \
@@ -122,6 +125,7 @@ process concat_fastq {
 
   script:
   """
+  set -o pipefail
   for fq in ${fastqs} ; do
       pixi run --manifest-path ${baseDir}/envs/samtools/pixi.toml \
         zcat \$fq | gzip >> ${barcode}.fastq.gz
@@ -143,6 +147,7 @@ process total_bases {
 
   script:
   """
+  set -o pipefail
   echo -e "barcode\ttotal_bases" > total_bases.tsv
 
   fqs=\$(printf "%s\\n" ${fastqs} | sort)

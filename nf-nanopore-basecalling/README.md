@@ -1,15 +1,18 @@
-# nf-nanopore-basecalling
+# nanobc
 
-Nextflow (DSL2) pipeline for Nanopore basecalling with Dorado, followed by
-barcode demultiplexing and basic QC (total base counts).
+A Nextflow (DSL2) pipeline for Dorado-based Nanopore basecalling, followed by
+barcode demultiplexing and basic QC (per-barcode FASTQ integrity and read
+counts).
 
 Two paths through the pipeline, selected by `--kitname`:
 
 - **LSK kits** (e.g. `SQK-LSK114`): `dorado_basecall_lsk` emits FASTQ directly;
   optionally rsynced to a remote destination via `--transfer_dest`.
-- **Barcoded kits** (e.g. `SQK-RBK114`): `dorado_basecall` emits a BAM, which is
-  then demultiplexed per barcode (`bam2fq`), concatenated across pod5 chunks
-  (`concat_fastq`), and summarized (`total_bases`).
+- **Barcoded kits** (e.g. `SQK-RBK114`): `dorado_basecall` emits a BAM, which
+  is then demultiplexed per barcode (`bam2fq`), with each barcode's FASTQ
+  published directly to `<outdir>/fastq/` (incl. `unknown.fastq.gz`). The
+  older `concat_fastq`/`total_bases` modules remain defined in
+  `modules/dorado.nf` but are not on this path.)
 
 ## Requirements
 
@@ -58,7 +61,9 @@ either is missing.
 ### Profiles
 
 - `slurm` — submits jobs to a SLURM cluster (GPU partition for Dorado, CPU
-  partitions for samtools/seqtk).
+  partitions for samtools/seqtk). The shipped `clusterOptions` are
+  **placeholders** — override them per cluster via `-c` with a gitignored
+  `nextflow.config.<cluster>.local` (see `nanobc-preflight` §2.5c/d).
 - `local` — runs everything on the local machine, no job submission.
 
 ## Run reports
