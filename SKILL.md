@@ -1,7 +1,7 @@
 ---
 name: nanobc
 description: 'Dorado-based Nanopore basecalling agent skill: preflight → run → qc, with a signature-library debug phase, over a dual execution path (Nextflow DSL2 runner for HPC/cohort; manual bash recipes for single-machine/no-Nextflow) and a CPU-only smoke-test harness. Use when the user wants to basecall pod5 files, pick a Dorado model/kit, check GPU health, verify a demultiplexed FASTQ output, or fix a failed basecalling run. Triggers: "basecall pod5", "nanopore basecalling", "dorado model", "run basecalling pipeline", "basecalling failed", "check demux fastqs".'
-version: 2.0.0
+version: 2.1.0
 updated: "2026-10-18"
 triggers:
   - "run the basecalling pipeline"
@@ -20,7 +20,12 @@ triggers:
 
 # Meta-Skill: nanobc
 
-> **v2.0.0 — restructured to the [skill-forge](https://github.com/cheahhl814/skill-forge)
+> **v2.1.0 — hardware-grounded preflight + asset home.** New §2g live hardware
+> inventory (`preflight/nanobc-preflight/hw-inventory.sh`: CPU/RAM/GPU/VRAM/driver/CUDA/disk/tools, identity-free)
+> is pasted into `params.rationale.md` at preflight time — hardware claims are re-derived per run instead of
+> relying on recorded host knowledge, and machine identities are explicitly barred from tracked files (v2.0.0
+> sanity-audit follow-up). Dorado models get a gitignored local home: `assets/models/` (`SP5`/`§2c` recommend it
+> as the download root). Predecessor notes: **v2.0.0** restructured to the [skill-forge](https://github.com/cheahhl814/skill-forge)
 > layout.** The pipeline now lives at `runners/nextflow-runner/`, the four phase
 > sub-skills at `preflight/`, `run/`, `debug/`, `qc/` (one named sub-skill each),
 > the manual executor at `runners/bash-recipes/`, plus a CPU-only test harness at
@@ -112,7 +117,7 @@ outputs present → `qc`; failure signature quoted → `debug`).
 
 | Phase | Sub-skill | Artifact it produces |
 | --- | --- | --- |
-| `preflight` | `preflight/nanobc-preflight` | `$RUN_DIR/params.json` (incl. `execution_mode`) + `params.rationale.md` (+ optional `nextflow.config.<env>.local`) |
+| `preflight` | `preflight/nanobc-preflight` | `$RUN_DIR/params.json` (incl. `execution_mode`) + `params.rationale.md` (incl. live hardware inventory, §2g) (+ optional `nextflow.config.<env>.local`) |
 | `run` | `run/nanobc-run` | FASTQs under `$OUTDIR` in the layout **identical** across both execution modes |
 | `debug` | `debug/nanobc-debug` | `$RUN_DIR/diagnosis.md` (failed processes + top-3 ranked hypotheses + Option A/B fixes) |
 | `qc` | `qc/nanobc-qc` | `$RUN_DIR/report.md` (overall PASS / PASS-WITH-WARNINGS / FAIL) |
@@ -148,7 +153,7 @@ gate is the battle-test baseline in GPU-less environments.
 
 | # | Phase | Goal | Sub-skill | Artifact |
 |:--|:------|:-----|:----------|:---------|
-| 1 | **Preflight** | Validate pod5/model/kit/GPU/cluster + pin execution mode | `preflight/nanobc-preflight` | `params.json` + `params.rationale.md` |
+| 1 | **Preflight** | Validate pod5/model/kit/GPU/cluster + live hardware inventory; pin execution mode | `preflight/nanobc-preflight` | `params.json` + `params.rationale.md` |
 | 2 | **Run** | Execute the run in the pinned mode | `run/nanobc-run` | FASTQs under `$OUTDIR`; logs (`$OUTDIR/logging/manual_run_*.log` or `.nextflow.log`) |
 | 3 | **Debug** | Interpret a failure | `debug/nanobc-debug` | `diagnosis.md` (verdict RECOVERABLE / BLOCKED) |
 | 4 | **QC** | Output integrity + per-barcode read counts | `qc/nanobc-qc` | `report.md` (PASS / PASS-WITH-WARNINGS / FAIL) |
@@ -181,8 +186,12 @@ nanobc/                          # NANOBC_HOME — this skill's checkout root
 ├── pixi.toml                    # skill manifest (update-check task)
 ├── bin/skill-update-check.py    # git-SHA drift check vs github.com/cheahhl814/nanobc
 ├── docs-corpus/<tool>/          # offline docs snapshots (dorado, samtools, seqtk, nextflow)
-├── preflight/nanobc-preflight/  # Phase 1 — params + GPU/cluster/execution-mode evidence
+├── assets/                      # gitignored local downloads — Dorado basecalling models
+│   ├── README.md                #   (tracked — explains the model-download convention)
+│   └── models/                  #   `dorado download --model <name>`, per preflight §2c/SP5
+├── preflight/nanobc-preflight/  # Phase 1 — params + GPU/cluster/execution-mode + live hardware evidence
 │   ├── SKILL.md
+│   ├── hw-inventory.sh          # live CPU/RAM/GPU/driver/disk inventory → params.rationale.md (§2g)
 │   └── gpu-fan.sh               # optional GPU fan helper (local workstation)
 ├── run/nanobc-run/              # Phase 2 — orchestrator + execution-mode fork (entry point)
 │   ├── SKILL.md

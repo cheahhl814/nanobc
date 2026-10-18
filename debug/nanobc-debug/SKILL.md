@@ -1,7 +1,7 @@
 ---
 name: nanobc-debug
 description: 'Interpret a failed nf-nanopore-basecalling Nextflow run, including CUDA/GPU errors, NVIDIA driver/library version mismatches, GPU thermal throttling, Dorado model/kit errors, pixi env issues, and SLURM partition/gres mismatches. Use when nextflow log shows ERR, exit status 1, exit 137 (OOM-kill), a Dorado/samtools/seqtk/transfer process failed, or a run is unexpectedly slow.'
-version: 2.0.0
+version: 2.1.0
 updated: "2026-10-18"
 triggers:
   - "basecalling failed"
@@ -21,7 +21,7 @@ triggers:
 
 # nanobc-debug — nf-nanopore-basecalling failure interpreter
 
-> **v2.0.0** — restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Reactive failure interpreter for the `nanobc-*` bundle: reads the run history + work-dir evidence (either execution mode), ranks the top-3 hypotheses, and writes `$RUN_DIR/diagnosis.md` with concrete fix options. It does **not** re-run the pipeline.
+> **v2.1.0** — adds the preflight live hardware inventory (`hw-inventory.sh` → `params.rationale.md`, machine identities barred) and the `assets/models/` model home; **v2.0.0** restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Reactive failure interpreter for the `nanobc-*` bundle: reads the run history + work-dir evidence (either execution mode), ranks the top-3 hypotheses, and writes `$RUN_DIR/diagnosis.md` with concrete fix options. It does **not** re-run the pipeline.
 
 ## Audience
 
@@ -232,7 +232,7 @@ nvidia-smi --query-gpu=clocks_throttle_reasons.active --format=csv,noheader 2>&1
 
 Nextflow's own trace (`cd "$LAUNCH_DIR" && nextflow log -f "process,name,realtime,hash" "$RUN_NAME"`) gives you the actual wall-clock duration to compare against prior runs of the same process — use that as your "slower than expected" baseline, not a guessed number.
 
-**Weight throttling by the host card's cooling class** (recorded in `../gpu-host-notes.md` — see `nanobc-preflight` §2e.1): lower-power variants (Max-Q class) trade cooling headroom for lower power/noise, and Dorado's long, steady, near-100%-utilization load is exactly what their cooling isn't validated against — weight the throttling hypothesis higher there. On full-power cards, weight it lower and check the driver-mismatch and config-mismatch hypotheses first.
+**Weight throttling by the host card's cooling class** (from the preflight live inventory, §2g — GPU model/VRAM/driver are recorded per-run in `params.rationale.md`; richer local notes may live in gitignored `gpu-host-notes.md`): lower-power variants (Max-Q class) trade cooling headroom for lower power/noise, and Dorado's long, steady, near-100%-utilization load is exactly what their cooling isn't validated against — weight the throttling hypothesis higher there. On full-power cards, weight it lower and check the driver-mismatch and config-mismatch hypotheses first.
 
 **This pipeline has no automated fan control** (and generally can't — fan curves are managed by the GPU firmware/driver, not something a Nextflow process can reach into) and **no continuous temperature logging** — `nanobc-preflight`'s temperature check is a one-time snapshot before the run starts. On a workstation you *can* pre-empt this manually with `nanobc-preflight`'s `gpu-fan.sh max` before a run (fans stay at max until `gpu-fan.sh auto` — no auto-restore). If throttling turns out to be a recurring problem, the durable fix is external to this repo (better cooling, a different node, or a cron-style `nvidia-smi --query-gpu=... --format=csv -l 60 >> gpu_temp.log` left running alongside the job) — not something to bolt onto the pipeline's Nextflow processes themselves.
 

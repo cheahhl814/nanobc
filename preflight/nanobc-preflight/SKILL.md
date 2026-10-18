@@ -1,7 +1,7 @@
 ---
 name: nanobc-preflight
 description: 'Prepare a Nextflow params.json for nf-nanopore-basecalling from a pod5 folder, a Dorado model, and a kit name, plus an optional machine-specific nextflow.config override. Validates the GPU is actually usable (nvidia-smi runs cleanly, no driver/library version mismatch, no pre-existing thermal throttling) before handing off to a run. Use when the user has raw pod5 files but has not yet decided --kitname / --model / --dorado_bin / execution profile, or wants to confirm the GPU is healthy before a long run.'
-version: 2.0.0
+version: 2.1.0
 updated: "2026-10-18"
 triggers:
   - "set up nanopore basecalling"
@@ -18,7 +18,7 @@ triggers:
 
 # nanobc-preflight — nf-nanopore-basecalling parameter preparation
 
-> **v2.0.0** — restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Phase 1 of the `nanobc-*` bundle: validates pod5/model/kit/GPU/cluster evidence, then writes `params.json` + `params.rationale.md` (+ optional `nextflow.config.<env>.local`). It does **not** run the pipeline.
+> **v2.1.0** — adds the preflight live hardware inventory (`hw-inventory.sh` → `params.rationale.md`, machine identities barred) and the `assets/models/` model home; **v2.0.0** restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Phase 1 of the `nanobc-*` bundle: validates pod5/model/kit/GPU/cluster evidence, then writes `params.json` + `params.rationale.md` (+ optional `nextflow.config.<env>.local`). It does **not** run the pipeline.
 
 ## Audience
 
@@ -63,6 +63,7 @@ Do NOT use this skill if:
 | `$RUN_DIR/params.json` | this skill | JSON | all six keys, absolute paths for `pod5`/`model`/`outdir` |
 | `$RUN_DIR/params.rationale.md` | this skill | Markdown | evidence audit + **overall verdict** (§4) |
 | `$RUN_DIR/nextflow.config.<env>.local` | this skill | Nextflow config | optional — only on partition/gres mismatch or user request (§2.5d) |
+| `$RUN_DIR/params.rationale.md` §Hardware (live inventory) | `hw-inventory.sh` (this skill) | Markdown | live CPU/RAM/GPU/driver/disk evidence, replacing all recorded/remembered host knowledge (§2g) |
 
 ### Verdict gate
 
@@ -122,7 +123,7 @@ This sub-skill has **six** stop points (SP1–SP6). Each fires only when the evi
 
 | Trigger | Evidence check | Ask |
 | --- | --- | --- |
-| Model path MISSING (§2c) | Model hasn't been downloaded yet | "Download it now (`$DORADO_BIN download --model <model>`), or did you mean a different model path?" |
+| Model path MISSING (§2c) | Model hasn't been downloaded yet | "Download it now — recommend `$DORADO_BIN download --model <model>` into `$NANOBC_HOME/assets/models/` (this skill's asset home, gitignored), or did you mean a different model path?" |
 
 **Auto-pick when**: never invent a model name; if the user names a different existing path, use it.
 
@@ -186,6 +187,7 @@ MODEL="dna_r10.4.1_e8.2_400bps_sup@v5.2.0"   # from user, may be relative or abs
 if [ ! -e "$MODEL" ]; then
   echo "WARNING: model path '$MODEL' does not exist relative to cwd."
   echo "If it hasn't been downloaded yet, try: $DORADO_BIN download --model $MODEL"
+  echo "  (recommended download root: $NANOBC_HOME/assets/models/ — see assets/README.md)"
   echo "(check '$DORADO_BIN download --help' for exact flags — they vary by Dorado version)"
 fi
 ```
@@ -261,7 +263,7 @@ If any field returns `[Not Supported]` (a normal NVML response, not an error) or
 
 This is a **snapshot at preflight time**, not continuous monitoring — Dorado runs can take hours, and thermal throttling is a sustained-load phenomenon that a single check before the run won't catch. See `nanobc-debug` §1.5 for what to check if a run finishes slower than expected or a temperature-related failure shows up mid-run.
 
-**Known local workstation GPU**: record this host's GPU — name, VRAM, TDP, PCI ID, driver/`nvidia-settings` versions — in `../gpu-host-notes.md` (gitignored; machine inventory is never pushed). Then adapt the generic guidance above to what it records:
+**Known local workstation GPU**: the live inventory (§2g, `hw-inventory.sh`) records this host's GPU — name, VRAM, driver/CUDA — into the run's rationale. If the user keeps richer local notes (TDP, PCI ID, fan behaviour) in `gpu-host-notes.md` (gitignored; never pushed), consult them as supplement. Adapt the generic guidance above to what the inventory records:
 
 - **Very large VRAM class (e.g. 96 GB professional cards)**: CUDA OOM is very unlikely — far more than any current Dorado model + batch size needs. If a CUDA-OOM error does show up on such a host, look harder at a config/params bug (e.g. an accidental `--gres` MIG-slice limit) before assuming the model is just "too big" — that diagnosis fits a shared/MIG-partitioned card, not a big single card.
 - **Lower-power / Max-Q-class variants (e.g. 300 W vs. ~600 W standard)**: they trade cooling headroom for power/noise. Dorado basecalling is a long, steady, near-100%-utilization load — a different thermal profile than what their cooling is typically validated against. Take the §2e.1 temperature/throttle snapshot more seriously on such a host, and if `nanobc-debug` §1.6 ever shows throttling there, that's plausible, not surprising.
@@ -297,6 +299,16 @@ du -sh "${files[@]}" 2>/dev/null | tail -1   # total pod5 input size, from §2a
 ```
 
 Basecalled FASTQ/BAM output is typically smaller than raw pod5 input, but leave headroom — recommend at least as much free space as the input pod5 total.
+
+### g) Live hardware inventory (the audit-trail substitute for recorded host knowledge)
+
+```bash
+"$SKILL_DIR/hw-inventory.sh" "$OUTDIR"          # Markdown evidence block on stdout — paste into params.rationale.md
+```
+
+Records the CURRENT host's CPU, RAM, GPU model/VRAM/driver/CUDA (via `nvidia-smi` when present, graceful "not detected" otherwise), disk free space at the outdir, OS/kernel, and the runbook's tool availability (`dorado`/`nextflow`/`pixi`/`jq`). It is deliberately identity-free: no hostname, MACs, or serials are captured — hardware SPECS ground the reasoning, machine IDENTITIES stay out of the audit trail (see What NOT to do).
+
+**Why this step exists**: earlier revisions of this bundle were tempted to record "known workstation" hardware in the repo, which is machine-specific information a public repo must not carry. The live inventory supersedes that: every claim about "this host" is re-derived at preflight time from the actual hardware, per run, and lives only in `$RUN_DIR/`. Keep any richer host notes the user maintains locally in `gpu-host-notes.md` (gitignored) — never in tracked files — and let §2g be the authoritative evidence.
 
 ## 2.5 Profile and cluster-spec detection (run before §3)
 
@@ -414,7 +426,7 @@ When an evidence step itself fails, match against these patterns. **Always** rea
 | `nvidia-smi: command not found` | Driver userspace not installed on this host | `local` → NO-GO; `slurm` → note not checked |
 | `sinfo: command not found` | No SLURM on this host (normal for `local`) | Fall back to user-supplied partition names (§2.5c) |
 | `jq: command not found` | jq missing | Install jq (distro package or `pixi add jq`) — the `nanobc-*` skills read `params.json` with it |
-| Model path MISSING (§2c) | Model not downloaded yet | `$DORADO_BIN download --model <model>` (check its `--help`; flags vary by version) |
+| Model path MISSING (§2c) | Model not downloaded yet | `$DORADO_BIN download --model <model>` — recommended root `$NANOBC_HOME/assets/models/` (§2c; check its `--help`; flags vary by version) |
 | Zero pod5 files matched (§2a) | Wrong glob | Stop and fix the glob with the user before writing params — Nextflow's `checkIfExists: true` would fail anyway |
 | `gpu-fan.sh` `set`/`max` exits non-zero | `nvidia-settings` missing or no reachable X display (§2e.2) | `status` still prints the `nvidia-smi` snapshot; don't block the run over fan control |
 
@@ -455,6 +467,7 @@ Pipeline:  $NANOBC_HOME (commit <hash if available>)
 - dorado: <path>, version=<dorado --version output, or "not found — resolve before running">
 - model: <path> (<exists|MISSING>)
 - kitname: <value> → routes to <LSK path | barcode-demux path>
+- hardware (live inventory §2g): <GPU model/VRAM/driver-CUDA | no NVIDIA driver>, <CPU>/RAM, disk free at outdir — no host identities recorded
 - gpu (local check only): <nvidia-smi name/memory summary, or "not checked — submitted via SLURM">
 - gpu driver check: <nvidia-smi ran cleanly | driver/library version mismatch found: loaded=<X> installed=<Y> — resolved by reboot/modprobe before running>
 - gpu temperature/throttle (snapshot): <temp>°C, throttle_reasons=<none|list> (see nanobc-preflight §2e.1; one-time check, not continuous monitoring)
@@ -506,6 +519,7 @@ bash "$NANOBC_HOME/runners/bash-recipes/run_basecalling.sh" --params-file "$RUN_
 - Do **not** edit `$NANOBC_HOME/runners/nextflow-runner/nextflow.config` in place — always use a `nextflow.config.<env>.local` override via `-c`
 - Do **not** use `withName:` in the override — this pipeline targets processes by `label` (`dorado`, `samtools`, `seqtk`, `transfer`); use `withLabel:`
 - Do **not** assume the shipped placeholder partition/gres (`<gpu_partition>` / `<gpu_gres>`) exists on any cluster — always check with `sinfo` first
+- Do **not** record machine identities (hostname, MAC, serial, PCI ID, user's real name/email) in any tracked file or rationale — hardware evidence is the LIVE §2g inventory (specs only), and host-specific notes belong in gitignored `gpu-host-notes.md`
 - Do **not** claim a specific Dorado basecalling throughput or runtime estimate — this repo has no benchmarking data pinned to a model/GPU pairing; point the user to their own prior runs or ONT's documentation instead of fabricating a number
 
 ## Verification
@@ -513,6 +527,7 @@ bash "$NANOBC_HOME/runners/bash-recipes/run_basecalling.sh" --params-file "$RUN_
 - [ ] `$RUN_DIR/params.json` exists, is valid JSON, carries all six `main.nf` keys plus `execution_mode`, and uses absolute paths for `pod5` / `model` / `outdir`.
 - [ ] `$RUN_DIR/params.rationale.md` exists with Evidence / Environment / Config override / Decisions / Warnings / **Overall verdict** sections filled.
 - [ ] `dorado --version` output is recorded in the rationale (the only Dorado audit trail — it is not pixi/conda-pinned).
+- [ ] §2g hardware inventory was run and its block pasted into `params.rationale.md` (live CPU/RAM/GPU/driver/disk; no machine identities).
 - [ ] Kit name was confirmed back with the user and its routing (LSK vs barcode-demux) is stated in the rationale.
 - [ ] Any override file uses `withLabel:` (never `withName:`), is applied via `-c`, and `$NANOBC_HOME/runners/nextflow-runner/nextflow.config` itself is untouched.
 - [ ] Overall verdict is `GO` or `GO-WITH-WARNINGS` before handing off — `nanobc-run` refuses a `NO-GO` verdict (Verdict gate, §0).

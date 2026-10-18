@@ -1,6 +1,6 @@
 # nanobc
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue)](#-installation)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue)](#-installation)
 [![Built with](https://img.shields.io/badge/built%20with-skill--forge-orange)](https://github.com/cheahhl814/skill-forge)
 [![Shape](https://img.shields.io/badge/shape-dual--path%20pipeline%20skill-8A2BE2)](#-pipeline-overview)
 
@@ -15,7 +15,10 @@ source of truth) for HPC/cohort runs and **manual bash recipes**
 **Repository**: https://github.com/cheahhl814/nanobc
 
 > [!NOTE]
-> Skill **v2.0.0** (restructured from the v1.2.x `.agents/skills/` bundle
+> Skill **v2.1.0** — adds the preflight **live hardware inventory** (`hw-inventory.sh` →
+> `params.rationale.md`: hardware claims are re-derived per run, machine identities barred from tracked files)
+> and the **`assets/models/`** home for downloaded Dorado models (gitignored). Predecessors: **v2.0.0**
+> (restructured from the v1.2.x `.agents/skills/` bundle
 > layout) · pipeline **v0.1.1** (multi-chunk publishDir-overwrite fix) ·
 > updated 2026-10-18.
 
@@ -135,7 +138,7 @@ two-mode trade-off table.
 
 | # | Phase | Goal | Sub-skill | Artifact produced |
 |:--|:------|:-----|:----------|:------------------|
-| **1** | **Preflight** | Validate pod5/model/kit/GPU/cluster + execution mode, write params | `preflight/nanobc-preflight` | `$RUN_DIR/params.json` (incl. `execution_mode`) + `params.rationale.md` (+ optional `nextflow.config.<env>.local`) |
+| **1** | **Preflight** | Validate pod5/model/kit/GPU/cluster + live hardware inventory, write params | `preflight/nanobc-preflight` | `$RUN_DIR/params.json` (incl. `execution_mode`) + `params.rationale.md` (incl. hardware inventory) (+ optional `nextflow.config.<env>.local`) |
 | **2** | **Run** | Execute the run, mode from `params.json:execution_mode` | `run/nanobc-run` | FASTQs under `$OUTDIR` — identical layouts in both modes |
 | **3** | **Debug** | Interpret a failed run | `debug/nanobc-debug` | `$RUN_DIR/diagnosis.md` (top-3 ranked hypotheses + Option A/B fixes) |
 | **4** | **QC** | Check output integrity + read counts | `qc/nanobc-qc` | `$RUN_DIR/report.md` (overall PASS / PASS-WITH-WARNINGS / FAIL) |
@@ -204,7 +207,8 @@ nanobc/                          # NANOBC_HOME — skill root = pipeline home pa
 ├── pixi.toml                    # skill manifest (update-check task)
 ├── bin/skill-update-check.py    # git-SHA drift check
 ├── docs-corpus/<tool>/          # offline docs snapshots (dorado, samtools, seqtk, nextflow)
-├── preflight/nanobc-preflight/  # Phase 1 (incl. gpu-fan.sh helper)
+├── assets/                      # gitignored downloads — Dorado basecalling models (README tracked)
+├── preflight/nanobc-preflight/  # Phase 1 (hw-inventory.sh live host inventory + gpu-fan.sh helper)
 ├── run/nanobc-run/              # Phase 2 (incl. track-progress.sh)
 ├── debug/nanobc-debug/          # Phase 3
 ├── qc/nanobc-qc/                # Phase 4

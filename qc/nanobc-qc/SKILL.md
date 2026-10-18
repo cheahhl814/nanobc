@@ -1,7 +1,7 @@
 ---
 name: nanobc-qc
 description: 'Quality-check a finished nf-nanopore-basecalling run''s output — FASTQ integrity, per-barcode read counts, unclassified fraction, and (for LSK runs) transfer completion. Use after a successful nextflow run when the user wants to know if the basecalling/demux output looks sane.'
-version: 2.0.0
+version: 2.1.0
 updated: "2026-10-18"
 triggers:
   - "nanobc QC"
@@ -14,7 +14,7 @@ triggers:
 
 # nanobc-qc — nf-nanopore-basecalling post-run quality control
 
-> **v2.0.0** — restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Final phase of the `nanobc-*` bundle: checks a finished run's output integrity (FASTQ integrity, per-barcode base/read counts, unclassified fraction, transfer completion) and writes `$RUN_DIR/report.md`. It never re-runs the pipeline.
+> **v2.1.0** — adds the preflight live hardware inventory (`hw-inventory.sh` → `params.rationale.md`, machine identities barred) and the `assets/models/` model home; **v2.0.0** restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Final phase of the `nanobc-*` bundle: checks a finished run's output integrity (FASTQ integrity, per-barcode base/read counts, unclassified fraction, transfer completion) and writes `$RUN_DIR/report.md`. It never re-runs the pipeline.
 >
 > **Mode-agnostic (v1.2.1):** QC operates on the output tree, not the executor. The Nextflow runner and the manual bash-recipes path (`run_basecalling.sh`) publish **identical layouts** — LSK: `$OUTDIR/dorado_basecall_lsk/`; barcoded: `$OUTDIR/fastq/` incl. `unknown` — so every check below applies to either mode unchanged. The only mode-dependent bit is failure triage on a QC `FAIL`: route by `params.json:execution_mode` (`manual` → the recipe transcript under `$OUTDIR/logging/`; `nextflow` → `.nextflow.log` + work dirs).
 

@@ -1,7 +1,7 @@
 ---
 name: nanobc-run
 description: 'Run nf-nanopore-basecalling end-to-end in either execution mode: the Nextflow runner (default for HPC/cluster/cohort runs, trace reports) or the manual bash-recipes path (single-machine, no-Nextflow situations). Includes applying any user-side nextflow.config override. Use when a user wants to basecall pod5 files and may not know the full workflow. Walks them through preflight → run (mode-selected) → qc/debug. Router: invoked directly by these triggers or by handoff from the other nanobc-* skills.'
-version: 2.0.0
+version: 2.1.0
 updated: "2026-10-18"
 triggers:
   - "run the basecalling pipeline"
@@ -18,7 +18,7 @@ triggers:
 
 # nanobc-run — nf-nanopore-basecalling end-to-end orchestrator
 
-> **v2.0.0** — restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Thin router for the `nanobc-*` skill family: detects the user's stage from filesystem evidence, offers the execution-mode fork (§0.6a), routes to the right skill/path, and hands off explicitly.
+> **v2.1.0** — adds the preflight live hardware inventory (`hw-inventory.sh` → `params.rationale.md`, machine identities barred) and the `assets/models/` model home; **v2.0.0** restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Thin router for the `nanobc-*` skill family: detects the user's stage from filesystem evidence, offers the execution-mode fork (§0.6a), routes to the right skill/path, and hands off explicitly.
 
 ## Audience
 
@@ -215,7 +215,7 @@ nextflow run main.nf -profile slurm $CONFIG_FLAG -params-file "$RUN_DIR/params.j
 
 ### Optional pre-run: force the GPU fan to max (local profile only)
 
-If this is a `local`-profile run on the workstation, recommend forcing the fan to 100% before a long basecall — Dorado keeps the GPU at near-100% utilization for hours, and a lower-power (Max-Q-class) cooler (see `nanobc-preflight` §2e.1/e.2 and `../gpu-host-notes.md` for this host's card) has the least headroom for exactly that load. The helper lives next to the preflight skill:
+If this is a `local`-profile run on the workstation, recommend forcing the fan to 100% before a long basecall — Dorado keeps the GPU at near-100% utilization for hours, and a lower-power (Max-Q-class) cooler (see `nanobc-preflight` §2e.1/e.2 and the live hardware inventory (§2g, recorded in `params.rationale.md`) for this host's card) has the least headroom for exactly that load. The helper lives next to the preflight skill:
 
 ```bash
 "$SKILL_DIR/gpu-fan.sh" status    # read-only snapshot

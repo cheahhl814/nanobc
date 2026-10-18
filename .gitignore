@@ -16,6 +16,10 @@ debug-report.md
 # docs-corpus ingest fingerprints
 docs-corpus/.fingerprints/
 
+# assets: local downloads (basecalling models etc.) — never pushed, README tracked
+/assets/*
+!/assets/README.md
+
 # pixi
 .pixi/
 nf-nanopore-basecalling/envs/*/.pixi/
