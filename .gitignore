@@ -11,10 +11,15 @@ battle-test-report.md
 preflight.md
 preflight_evidence.txt
 skill-built.md
+debug-report.md
+
+# docs-corpus ingest fingerprints
+docs-corpus/.fingerprints/
 
 # pixi
 .pixi/
 nf-nanopore-basecalling/envs/*/.pixi/
+runners/nextflow-runner/envs/*/.pixi/
 
 # IDE / OS
 .DS_Store
@@ -37,3 +42,7 @@ gpu_temp.log
 
 # Per-host GPU inventory (machine-specific, never pushed)
 gpu-host-notes.md
+
+# python bytecode
+__pycache__/
+*.pyc

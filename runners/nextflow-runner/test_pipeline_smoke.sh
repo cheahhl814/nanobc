@@ -11,7 +11,7 @@
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-PIPEHOME="$(cd "$HERE/.." && pwd)"
+PIPEHOME="$(cd "$HERE" && pwd)"
 SAMTOOLS_ENV="$PIPEHOME/envs/samtools/pixi.toml"
 readcount() { zcat "$1" 2>/dev/null | awk 'END{print NR/4}'; }
 

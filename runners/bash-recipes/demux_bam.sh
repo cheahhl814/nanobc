@@ -9,7 +9,7 @@
 # Usage:
 #   ./demux_bam.sh <input.bam> <outdir> [pixi-manifest]
 #
-#   <pixi-manifest>  default $NANOBC_HOME/envs/samtools/pixi.toml
+#   <pixi-manifest>  default $NANOBC_HOME/runners/nextflow-runner/envs/samtools/pixi.toml
 #                    pass an empty string '' to use samtools from $PATH directly
 #
 # Output: <outdir>/<barcode>.fastq.gz (+ unknown.fastq.gz) — mirrors bam2fq's
@@ -25,7 +25,7 @@ NANOBC_HOME="${NANOBC_HOME:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 
 BAM="${1:?usage: demux_bam.sh <input.bam> <outdir> [pixi-manifest]}"
 OUTDIR="${2:?usage: demux_bam.sh <input.bam> <outdir> [pixi-manifest]}"
-PIXI_MANIFEST="${3:-$NANOBC_HOME/envs/samtools/pixi.toml}"
+PIXI_MANIFEST="${3:-$NANOBC_HOME/runners/nextflow-runner/envs/samtools/pixi.toml}"
 
 [[ -f "$BAM" ]] || { echo "ERROR: no such BAM: $BAM" >&2; exit 1; }
 BAM="$(cd "$(dirname "$BAM")" && pwd)/$(basename "$BAM")"

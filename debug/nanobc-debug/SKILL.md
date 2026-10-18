@@ -1,7 +1,7 @@
 ---
 name: nanobc-debug
 description: 'Interpret a failed nf-nanopore-basecalling Nextflow run, including CUDA/GPU errors, NVIDIA driver/library version mismatches, GPU thermal throttling, Dorado model/kit errors, pixi env issues, and SLURM partition/gres mismatches. Use when nextflow log shows ERR, exit status 1, exit 137 (OOM-kill), a Dorado/samtools/seqtk/transfer process failed, or a run is unexpectedly slow.'
-version: 1.2.1
+version: 2.0.0
 updated: "2026-10-18"
 triggers:
   - "basecalling failed"
@@ -21,7 +21,7 @@ triggers:
 
 # nanobc-debug — nf-nanopore-basecalling failure interpreter
 
-> **v1.2.1.*** Reactive failure interpreter for the `nanobc-*` bundle: reads the run history + work-dir evidence (either execution mode), ranks the top-3 hypotheses, and writes `$RUN_DIR/diagnosis.md` with concrete fix options. It does **not** re-run the pipeline.
+> **v2.0.0** — restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Reactive failure interpreter for the `nanobc-*` bundle: reads the run history + work-dir evidence (either execution mode), ranks the top-3 hypotheses, and writes `$RUN_DIR/diagnosis.md` with concrete fix options. It does **not** re-run the pipeline.
 
 ## Audience
 
@@ -75,8 +75,8 @@ Evidence location depends on the **execution mode** of the failed run (`params.j
 ### 0.1 Locate the pipeline, the launch dir, and the run
 
 ```bash
-: "${NANOBC_HOME:=$(cd "$SKILL_DIR/../../../nf-nanopore-basecalling" 2>/dev/null && pwd)}"
-test -f "$NANOBC_HOME/main.nf" || { echo "Cannot locate nf-nanopore-basecalling. Set NANOBC_HOME."; exit 1; }
+: "${NANOBC_HOME:=$(cd "$SKILL_DIR/../.." 2>/dev/null && pwd)}"
+test -f "$NANOBC_HOME/runners/nextflow-runner/main.nf" || { echo "Cannot locate runners/nextflow-runner under the nanobc skill root. Set NANOBC_HOME."; exit 1; }
 
 # Execution mode of the failed run — decides WHERE the evidence lives.
 MODE=$(jq -r '.execution_mode // "nextflow"' < "$RUN_DIR/params.json" 2>/dev/null)
@@ -181,7 +181,7 @@ nextflow log -f "process,name,cpus,memory,realtime,hash" "$RUN_NAME" | grep -F "
 # Was a user-side config override applied?
 USER_CONFIG="$RUN_DIR/nextflow.config.${NANOBC_PROFILE:-slurm}.local"
 [ -f "$USER_CONFIG" ] && echo "User override in use: $USER_CONFIG" \
-                      || echo "No user override — using $NANOBC_HOME/nextflow.config defaults (PLACEHOLDER partition/gres for the 'dorado' label — write a real override via nanobc-preflight §2.5c/d)"
+                      || echo "No user override — using $NANOBC_HOME/runners/nextflow-runner/nextflow.config defaults (PLACEHOLDER partition/gres for the 'dorado' label — write a real override via nanobc-preflight §2.5c/d)"
 ```
 
 - **Job never starts / stuck `PD` in `squeue`** with reason `Invalid Gres` / `PartitionConfig` / `ReqNodeNotAvail` → the (placeholder) `--gres`/`--partition` in the shipped config — or a stale override — doesn't exist on this cluster. Fix: `nanobc-preflight` §2.5c/d to write a `nextflow.config.slurm.local` override with real partition/gres names, applied via `-c`. **Do not** edit `nextflow.config` directly.
@@ -277,8 +277,8 @@ pipeline, they are a real new bug, not the known one.
 | Signature | Likely cause | Suggested fix |
 |---|---|---|
 | `pixi: command not found` | `pixi` isn't installed / on `$PATH` on the compute node that ran the job (common on SLURM worker nodes with a different environment than the login node) | Install pixi on all worker nodes, or point `PATH` at a shared pixi install; this is a per-cluster prerequisite the pipeline assumes silently |
-| `error: no environment found` / lock mismatch from `pixi run` | `envs/<tool>/pixi.lock` out of sync with `pixi.toml`, or `.pixi/` not yet installed on this node | `pixi install --manifest-path $NANOBC_HOME/envs/<tool>/pixi.toml` once on that node (or ensure `envs/` including `.pixi/` is on shared storage) |
-| `samtools: command not found` (inside the pixi run) | Broken/partial pixi env install | Re-run `pixi install --manifest-path $NANOBC_HOME/envs/samtools/pixi.toml --force-reinstall` |
+| `error: no environment found` / lock mismatch from `pixi run` | `envs/<tool>/pixi.lock` out of sync with `pixi.toml`, or `.pixi/` not yet installed on this node | `pixi install --manifest-path $NANOBC_HOME/runners/nextflow-runner/envs/<tool>/pixi.toml` once on that node (or ensure `envs/` including `.pixi/` is on shared storage) |
+| `samtools: command not found` (inside the pixi run) | Broken/partial pixi env install | Re-run `pixi install --manifest-path $NANOBC_HOME/runners/nextflow-runner/envs/samtools/pixi.toml --force-reinstall` |
 | `awk: ... unexpected` in `bam2fq` | BAM has no `BC:Z:` tags at all (e.g. this BAM came from an LSK-style basecall accidentally routed through the barcode branch) | Confirm `--kitname` truly is a barcoded kit; check `samtools view <bam> | head -1` for a `BC:Z:` field |
 | Almost all reads end up in `unknown.fastq.gz`, few/none in real barcode files | Reads genuinely weren't demultiplexed (kit/model mismatch, or basecalling ran without a barcoding-capable kit setting), not a script bug | Re-check `--kitname` and the Dorado invocation in `dorado_basecall` (`modules/dorado.nf:63-65`); this is a Dorado-level demux outcome, not something `bam2fq`'s awk script can fix |
 
@@ -380,7 +380,7 @@ Always produce **multiple ranked hypotheses** (top 3) — use the confidence lab
 ## 4. What NOT to do
 
 - Do **not** modify `main.nf` or `modules/dorado.nf` without the user's explicit go-ahead
-- Do **not** blanket-edit `$NANOBC_HOME/nextflow.config` to "try a bigger partition" — diagnose first (§1.5), then write a `nextflow.config.<env>.local` override
+- Do **not** blanket-edit `$NANOBC_HOME/runners/nextflow-runner/nextflow.config` to "try a bigger partition" — diagnose first (§1.5), then write a `nextflow.config.<env>.local` override
 - Do **not** use `withName:` in an override — this pipeline's processes carry `label` directives (`dorado`, `samtools`, `seqtk`, `transfer`); use `withLabel:`
 - Do **not** assume a CUDA OOM is a host-RAM OOM (or vice versa) — check both `nvidia-smi`-reported GPU memory and the SLURM/host memory limit before recommending a fix
 - Do **not** claim the `bam2fq` awk script is buggy just because most reads land in `unknown.fastq.gz` — that's very likely a genuine Dorado-level demultiplexing outcome (wrong kit/model), not a script defect

@@ -22,7 +22,7 @@ set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 NANOBC_HOME="${NANOBC_HOME:-$(cd "$HERE/../.." && pwd)}"
-SAMTOOLS_ENV="$NANOBC_HOME/envs/samtools/pixi.toml"
+SAMTOOLS_ENV="$NANOBC_HOME/runners/nextflow-runner/envs/samtools/pixi.toml"
 
 PASSN=0; FAILN=0
 pass() { echo "PASS: $*"; PASSN=$((PASSN+1)); }
@@ -39,7 +39,7 @@ done
 
 # --- 2. awk demux logic matches modules/dorado.nf (bam2fq source of truth) ---
 echo "== 2. awk demux logic matches modules/dorado.nf (normalizing escaping) =="
-if python3 - "$NANOBC_HOME/modules/dorado.nf" "$HERE/demux_bam.sh" <<'PYEOF'
+if python3 - "$NANOBC_HOME/runners/nextflow-runner/modules/dorado.nf" "$HERE/demux_bam.sh" <<'PYEOF'
 import sys
 
 def extract_awk(path, start_pat="awk -v outdir="):
@@ -127,7 +127,7 @@ if eval "$(sed -n '/^pod5_id() {/,/^}/p' "$HERE/run_basecalling.sh")" 2>/dev/nul
   check_id "N046.pod5.002"  "N046.002"
   check_id "N046.001.pod5"  "N046.001"
   check_id "batch1.pod5"    "batch1"
-  if grep -q 'pod5Id' "$NANOBC_HOME/main.nf" && grep -q 'pod5(?=(\\.\\d+)?$)' "$NANOBC_HOME/main.nf"; then
+  if grep -q 'pod5Id' "$NANOBC_HOME/runners/nextflow-runner/main.nf" && grep -q 'pod5(?=(\\.\\d+)?$)' "$NANOBC_HOME/runners/nextflow-runner/main.nf"; then
     pass "main.nf pod5Id() regex present (lock-step anchor)"
   else
     fail "main.nf pod5Id() regex drifted — recipe id rule is no longer mirrored"

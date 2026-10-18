@@ -1,7 +1,7 @@
 ---
 name: nanobc-qc
 description: 'Quality-check a finished nf-nanopore-basecalling run''s output — FASTQ integrity, per-barcode read counts, unclassified fraction, and (for LSK runs) transfer completion. Use after a successful nextflow run when the user wants to know if the basecalling/demux output looks sane.'
-version: 1.2.1
+version: 2.0.0
 updated: "2026-10-18"
 triggers:
   - "nanobc QC"
@@ -14,7 +14,7 @@ triggers:
 
 # nanobc-qc — nf-nanopore-basecalling post-run quality control
 
-> **v1.2.1.*** Final phase of the `nanobc-*` bundle: checks a finished run's output integrity (FASTQ integrity, per-barcode base/read counts, unclassified fraction, transfer completion) and writes `$RUN_DIR/report.md`. It never re-runs the pipeline.
+> **v2.0.0** — restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Final phase of the `nanobc-*` bundle: checks a finished run's output integrity (FASTQ integrity, per-barcode base/read counts, unclassified fraction, transfer completion) and writes `$RUN_DIR/report.md`. It never re-runs the pipeline.
 >
 > **Mode-agnostic (v1.2.1):** QC operates on the output tree, not the executor. The Nextflow runner and the manual bash-recipes path (`run_basecalling.sh`) publish **identical layouts** — LSK: `$OUTDIR/dorado_basecall_lsk/`; barcoded: `$OUTDIR/fastq/` incl. `unknown` — so every check below applies to either mode unchanged. The only mode-dependent bit is failure triage on a QC `FAIL`: route by `params.json:execution_mode` (`manual` → the recipe transcript under `$OUTDIR/logging/`; `nextflow` → `.nextflow.log` + work dirs).
 
@@ -63,8 +63,8 @@ Do NOT use this skill if:
 ### 0.1 Locate the pipeline and the run
 
 ```bash
-: "${NANOBC_HOME:=$(cd "$SKILL_DIR/../../../nf-nanopore-basecalling" 2>/dev/null && pwd)}"
-test -f "$NANOBC_HOME/main.nf" || { echo "Cannot locate nf-nanopore-basecalling. Set NANOBC_HOME."; exit 1; }
+: "${NANOBC_HOME:=$(cd "$SKILL_DIR/../.." 2>/dev/null && pwd)}"
+test -f "$NANOBC_HOME/runners/nextflow-runner/main.nf" || { echo "Cannot locate runners/nextflow-runner under the nanobc skill root. Set NANOBC_HOME."; exit 1; }
 
 RUN_DIR="${RUN_DIR:-$NANOBC_HOME}"
 OUTDIR=$(jq -r '.outdir' < "$RUN_DIR/params.json" 2>/dev/null || echo "$RUN_DIR/results")
@@ -242,7 +242,7 @@ Generated: <ISO8601>
 ## Reproducibility
 - params.json: $RUN_DIR/params.json
 - dorado version: <from params.rationale.md if available, else "not recorded — re-run nanobc-preflight next time">
-- envs/samtools, envs/seqtk pixi.lock: $NANOBC_HOME/envs/*/pixi.lock
+- envs/samtools, envs/seqtk pixi.lock: $NANOBC_HOME/runners/nextflow-runner/envs/*/pixi.lock
 - this report: $RUN_DIR/report.md (regenerable via `nanobc-qc` skill)
 ```
 

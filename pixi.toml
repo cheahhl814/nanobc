@@ -1,0 +1,31 @@
+[project]
+name = "nanobc"
+version = "2.0.0"
+description = "Dorado-based Nanopore basecalling agent skill: preflight → run → qc with a dual execution path (Nextflow runner + manual bash recipes) and CPU-only smoke tests."
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+# The skill's own tool environment is intentionally minimal: the pipeline's
+# tools are pinned separately in runners/nextflow-runner/envs/<tool>/ (samtools,
+# seqtk), and Dorado itself is a stand-alone ONT GPU binary with no conda
+# package (invoked via params.dorado_bin).
+
+[tasks]
+# See bin/skill-update-check.py for the verdict legend
+# (UP-TO-DATE / LOCAL-AHEAD / BEHIND-BY-N / OFFLINE / NO-ORIGIN).
+update-check = "python3 bin/skill-update-check.py"
+
+# CPU-only verification harnesses (no GPU, no dorado, no model needed):
+smoke-recipes = "bash runners/bash-recipes/test_smoke.sh"
+smoke-pipeline = "bash runners/nextflow-runner/test_pipeline_smoke.sh"
+smoke = { cmd = """
+bash runners/bash-recipes/test_smoke.sh &&
+bash runners/nextflow-runner/test_pipeline_smoke.sh
+""" }
+
+[feature.structure.tasks]
+# Structural gate (stdlib-only linter from skill-forge):
+lint = "python3 skill-forge/bin/skill-lint.py ."
+
+[environments]
+structure = ["structure"]

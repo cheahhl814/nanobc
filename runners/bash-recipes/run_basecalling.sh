@@ -119,9 +119,9 @@ for _f in "${POD5_FILES[@]}"; do
 done
 
 NANOBC_HOME="$(cd "$NANOBC_HOME" && pwd)"
-[[ -d "$NANOBC_HOME/envs" ]] \
-  || echo "WARN: $NANOBC_HOME does not look like the nf-nanopore-basecalling tree — pixi env lookups for samtools will fail on the barcoded path" >&2
-SAMTOOLS_ENV="$NANOBC_HOME/envs/samtools/pixi.toml"
+[[ -d "$NANOBC_HOME/runners/nextflow-runner/envs" ]] \
+  || echo "WARN: $NANOBC_HOME does not look like the nanobc skill tree (no runners/nextflow-runner) — pixi env lookups for samtools will fail on the barcoded path" >&2
+SAMTOOLS_ENV="$NANOBC_HOME/runners/nextflow-runner/envs/samtools/pixi.toml"
 
 TS="$(date +%Y-%m-%d_%H-%M-%S)"
 LOGFILE="$OUTDIR/logging/manual_run_${TS}.log"

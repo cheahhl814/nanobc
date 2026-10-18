@@ -1,7 +1,7 @@
 ---
 name: nanobc-preflight
 description: 'Prepare a Nextflow params.json for nf-nanopore-basecalling from a pod5 folder, a Dorado model, and a kit name, plus an optional machine-specific nextflow.config override. Validates the GPU is actually usable (nvidia-smi runs cleanly, no driver/library version mismatch, no pre-existing thermal throttling) before handing off to a run. Use when the user has raw pod5 files but has not yet decided --kitname / --model / --dorado_bin / execution profile, or wants to confirm the GPU is healthy before a long run.'
-version: 1.2.1
+version: 2.0.0
 updated: "2026-10-18"
 triggers:
   - "set up nanopore basecalling"
@@ -18,7 +18,7 @@ triggers:
 
 # nanobc-preflight — nf-nanopore-basecalling parameter preparation
 
-> **v1.2.1.*** Phase 1 of the `nanobc-*` bundle: validates pod5/model/kit/GPU/cluster evidence, then writes `params.json` + `params.rationale.md` (+ optional `nextflow.config.<env>.local`). It does **not** run the pipeline.
+> **v2.0.0** — restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Phase 1 of the `nanobc-*` bundle: validates pod5/model/kit/GPU/cluster evidence, then writes `params.json` + `params.rationale.md` (+ optional `nextflow.config.<env>.local`). It does **not** run the pipeline.
 
 ## Audience
 
@@ -48,7 +48,7 @@ Do NOT use this skill if:
 
 | Path | Source | Required? |
 | --- | --- | --- |
-| `$NANOBC_HOME/main.nf` + `nextflow.config` | pipeline repo (resolved in §0.1) | yes |
+| `$NANOBC_HOME/runners/nextflow-runner/main.nf` + `nextflow.config` | pipeline repo (resolved in §0.1) | yes |
 | Pod5 glob | user (§1) | yes |
 | Dorado model path | user (§1) | yes |
 | Kit name | user (§1) | yes (default `SQK-LSK114`) |
@@ -72,15 +72,15 @@ Do NOT use this skill if:
 
 Resolve `NANOBC_HOME`:
 - Prefer `$NANOBC_HOME` if set
-- Otherwise look for a sibling directory named `nf-nanopore-basecalling` next to this skill's parent (`../nf-nanopore-basecalling`)
+- Otherwise resolve to the pipeline tree bundled in this skill: `$NANOBC_HOME/runners/nextflow-runner/`
 - Otherwise ask the user
 
 ```bash
-: "${NANOBC_HOME:=$(cd "$SKILL_DIR/../../../nf-nanopore-basecalling" 2>/dev/null && pwd)}"
-test -f "$NANOBC_HOME/main.nf" || { echo "Cannot locate nf-nanopore-basecalling. Set NANOBC_HOME."; exit 1; }
+: "${NANOBC_HOME:=$(cd "$SKILL_DIR/../.." 2>/dev/null && pwd)}"
+test -f "$NANOBC_HOME/runners/nextflow-runner/main.nf" || { echo "Cannot locate runners/nextflow-runner under the nanobc skill root. Set NANOBC_HOME."; exit 1; }
 ```
 
-`samtools`/`seqtk` are pinned via pixi (`pixi run --manifest-path "$NANOBC_HOME/envs/<tool>/pixi.toml" ...`). **Dorado is not** — see §2b.
+`samtools`/`seqtk` are pinned via pixi (`pixi run --manifest-path "$NANOBC_HOME/runners/nextflow-runner/envs/<tool>/pixi.toml" ...`). **Dorado is not** — see §2b.
 
 ### 0.5 Ask-User Stop Points
 
@@ -291,7 +291,7 @@ Use `max` before committing a long `local` run — Dorado is a sustained near-10
 ### f) Disk space check
 
 ```bash
-: "${OUTDIR:=$NANOBC_HOME/results}"
+: "${OUTDIR:=$NANOBC_HOME/runners/nextflow-runner/results}"
 df -BG "$OUTDIR" 2>/dev/null | awk 'NR==2 {print "Free space at outdir:", $4}'
 du -sh "${files[@]}" 2>/dev/null | tail -1   # total pod5 input size, from §2a
 ```
@@ -489,7 +489,7 @@ Pipeline:  $NANOBC_HOME (commit <hash if available>)
 ## Run command
 \`\`\`bash
 # execution_mode = nextflow:
-cd "$NANOBC_HOME"
+cd "$NANOBC_HOME/runners/nextflow-runner"
 nextflow run main.nf -profile <env> [-c nextflow.config.<env>.local] -params-file params.json
 
 # execution_mode = manual (same params, bash-recipes runner):
@@ -502,8 +502,8 @@ bash "$NANOBC_HOME/runners/bash-recipes/run_basecalling.sh" --params-file "$RUN_
 
 - Do **not** invent a Dorado model name or kit name the user hasn't confirmed
 - Do **not** run `nextflow run` — this skill produces the params, the user (or `nanobc-run`) runs the pipeline
-- Do **not** write to `$NANOBC_HOME/results/` — that's the pipeline's own output directory
-- Do **not** edit `$NANOBC_HOME/nextflow.config` in place — always use a `nextflow.config.<env>.local` override via `-c`
+- Do **not** write to `$NANOBC_HOME/runners/nextflow-runner/results/` — that's the pipeline's own output directory
+- Do **not** edit `$NANOBC_HOME/runners/nextflow-runner/nextflow.config` in place — always use a `nextflow.config.<env>.local` override via `-c`
 - Do **not** use `withName:` in the override — this pipeline targets processes by `label` (`dorado`, `samtools`, `seqtk`, `transfer`); use `withLabel:`
 - Do **not** assume the shipped placeholder partition/gres (`<gpu_partition>` / `<gpu_gres>`) exists on any cluster — always check with `sinfo` first
 - Do **not** claim a specific Dorado basecalling throughput or runtime estimate — this repo has no benchmarking data pinned to a model/GPU pairing; point the user to their own prior runs or ONT's documentation instead of fabricating a number
@@ -514,7 +514,7 @@ bash "$NANOBC_HOME/runners/bash-recipes/run_basecalling.sh" --params-file "$RUN_
 - [ ] `$RUN_DIR/params.rationale.md` exists with Evidence / Environment / Config override / Decisions / Warnings / **Overall verdict** sections filled.
 - [ ] `dorado --version` output is recorded in the rationale (the only Dorado audit trail — it is not pixi/conda-pinned).
 - [ ] Kit name was confirmed back with the user and its routing (LSK vs barcode-demux) is stated in the rationale.
-- [ ] Any override file uses `withLabel:` (never `withName:`), is applied via `-c`, and `$NANOBC_HOME/nextflow.config` itself is untouched.
+- [ ] Any override file uses `withLabel:` (never `withName:`), is applied via `-c`, and `$NANOBC_HOME/runners/nextflow-runner/nextflow.config` itself is untouched.
 - [ ] Overall verdict is `GO` or `GO-WITH-WARNINGS` before handing off — `nanobc-run` refuses a `NO-GO` verdict (Verdict gate, §0).
 
 ## 6. Handoff
