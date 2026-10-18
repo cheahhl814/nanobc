@@ -1,7 +1,7 @@
 ---
 name: nanobc-preflight
 description: 'Prepare a Nextflow params.json for nf-nanopore-basecalling from a pod5 folder, a Dorado model, and a kit name, plus an optional machine-specific nextflow.config override. Validates the GPU is actually usable (nvidia-smi runs cleanly, no driver/library version mismatch, no pre-existing thermal throttling) before handing off to a run. Use when the user has raw pod5 files but has not yet decided --kitname / --model / --dorado_bin / execution profile, or wants to confirm the GPU is healthy before a long run.'
-version: 1.2.0
+version: 1.2.1
 updated: "2026-10-18"
 triggers:
   - "set up nanopore basecalling"
@@ -18,7 +18,7 @@ triggers:
 
 # nanobc-preflight — nf-nanopore-basecalling parameter preparation
 
-> **v1.2.0.** Phase 1 of the `nanobc-*` bundle: validates pod5/model/kit/GPU/cluster evidence, then writes `params.json` + `params.rationale.md` (+ optional `nextflow.config.<env>.local`). It does **not** run the pipeline.
+> **v1.2.1.*** Phase 1 of the `nanobc-*` bundle: validates pod5/model/kit/GPU/cluster evidence, then writes `params.json` + `params.rationale.md` (+ optional `nextflow.config.<env>.local`). It does **not** run the pipeline.
 
 ## Audience
 

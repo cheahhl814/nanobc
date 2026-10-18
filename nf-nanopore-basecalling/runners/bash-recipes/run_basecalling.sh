@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 # run_basecalling.sh — manual (bash) execution path for nf-nanopore-basecalling
 #
-# v1.0.0 — mirrors modules/dorado.nf + main.nf command-for-command. The Nextflow
+# v1.1.0 — mirrors modules/dorado.nf + main.nf command-for-command. The Nextflow
 # pipeline (nextflow run main.nf) remains the source of truth; this script is a
 # thin executor for single-machine / no-Nextflow / smoke situations. If a
 # process script in modules/dorado.nf changes, mirror the change here in the
 # same commit.
+#
+# v1.1.0 changes (parallel to pipeline v0.1.1):
+#   - pod5_id(): collision-proof chunk ids — the old `${id%.*}` mirrored
+#     Path.baseName and collapsed chunk-split deliveries (N046.pod5.001/002 →
+#     N046.pod5), overwriting earlier chunks' outputs in $OUTDIR
+#   - barcoded path: per-chunk demux output is kept in $OUTDIR/demux_chunks/
+#     and aggregated per barcode AFTER the loop (mirrors the concat_fastq
+#     process; per-chunk writes into $OUTDIR/fastq used to overwrite each other)
 #
 # Two paths, selected by --kitname exactly like main.nf:
 #   LSK kits      (kitname contains "LSK", e.g. SQK-LSK114):
@@ -34,6 +42,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() { grep '^#' "$0" | sed 's/^# \{0,1\}//' | sed '/^$/d'; exit 1; }
 die() { echo "ERROR: $*" >&2; exit 1; }
+
+# Mirror of main.nf pod5Id() (pipeline v0.1.1): strip the .pod5 container
+# marker only, keeping every other name part (incl. the chunk index of
+# chunk-split deliveries):
+#   N046_001.pod5 -> N046_001     N046.pod5.001 -> N046.001
+#   N046.001.pod5 -> N046.001     batch1.pod5   -> batch1
+# (the old "id=${id%.*}" mirrored Path.baseName, which collapsed
+# N046.pod5.001/002 → N046.pod5 and silently overwrote earlier chunks)
+pod5_id() {
+  local n="$1"
+  n="${n%.pod5}"      # plain naming: strip trailing .pod5
+  n="${n/.pod5./.}"   # chunk-split naming: N046.pod5.001 -> N046.001
+  printf '%s' "$n"
+}
 
 POD5="" MODEL="" KITNAME="SQK-LSK114" OUTDIR="${PWD}/results" DORADO_BIN="dorado" TRANSFER_DEST="" PARAMS_FILE=""
 NANOBC_HOME="${NANOBC_HOME:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
@@ -85,6 +107,17 @@ mapfile -t POD5_FILES < <(compgen -G "$POD5" || true)
   || die "pod5 glob matches nothing: $POD5 (main.nf would abort via checkIfExists: true)"
 [[ -e "$MODEL" ]] || die "model path does not exist: $MODEL"
 
+# Duplicate-id guard (mirrors main.nf v0.1.1): two chunks mapping to the same
+# id would silently overwrite each other in $OUTDIR — fail loudly instead.
+declare -A IDS_SEEN=()
+for _f in "${POD5_FILES[@]}"; do
+  _i="$(pod5_id "$(basename "$_f")")"
+  if [[ -n "${IDS_SEEN[$_i]:-}" ]]; then
+    die "pod5 id collision: '${IDS_SEEN[$_i]}' and '$(basename "$_f")' both map to id '$_i' — their outputs would overwrite each other in $OUTDIR. Rename the chunks so the distinguishing part sits before .pod5."
+  fi
+  IDS_SEEN[$_i]="$(basename "$_f")"
+done
+
 NANOBC_HOME="$(cd "$NANOBC_HOME" && pwd)"
 [[ -d "$NANOBC_HOME/envs" ]] \
   || echo "WARN: $NANOBC_HOME does not look like the nf-nanopore-basecalling tree — pixi env lookups for samtools will fail on the barcoded path" >&2
@@ -92,6 +125,7 @@ SAMTOOLS_ENV="$NANOBC_HOME/envs/samtools/pixi.toml"
 
 TS="$(date +%Y-%m-%d_%H-%M-%S)"
 LOGFILE="$OUTDIR/logging/manual_run_${TS}.log"
+DEMUX_CHUNKS_DIR="$OUTDIR/demux_chunks"   # per-chunk demux output; KEPT as evidence (mirrors work/)
 mkdir -p "$OUTDIR/logging"
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" | tee -a "$LOGFILE"; }
@@ -118,7 +152,7 @@ LSK=0; [[ "$KITNAME" == *LSK* ]] && LSK=1
 # --- per-file driver, mirroring dorado_basecall_lsk / dorado_basecall ---
 for pod5_file in "${POD5_FILES[@]}"; do
   id="$(basename "$pod5_file")"
-  id="${id%.*}"                                  # meta.id = baseName in main.nf
+  id="$(pod5_id "$id")"                          # meta.id = pod5Id() in main.nf (v0.1.1)
 
   if [[ $LSK -eq 1 ]]; then
     outfq="$OUTDIR/dorado_basecall_lsk/${id}.fastq.gz"
@@ -147,11 +181,35 @@ for pod5_file in "${POD5_FILES[@]}"; do
       die "dorado basecaller failed on $pod5_file (see $LOGFILE)"
     fi
     log "wrote $outbam ($(du -h "$outbam" | cut -f1)); demultiplexing ..."
-    mkdir -p "$OUTDIR/fastq"
-    bash "$SCRIPT_DIR/demux_bam.sh" "$outbam" "$OUTDIR/fastq" "$SAMTOOLS_ENV" \
+    chunk_dir="$DEMUX_CHUNKS_DIR/$id"
+    mkdir -p "$chunk_dir"
+    # per-chunk demux into a CHUNK-SCOPED dir — writing <barcode>.fastq.gz
+    # straight into $OUTDIR/fastq would overwrite previous chunks (the same
+    # publishDir-collision bug class as the LSK id collision)
+    bash "$SCRIPT_DIR/demux_bam.sh" "$outbam" "$chunk_dir" "$SAMTOOLS_ENV" \
       || die "demux_bam.sh failed on $outbam (exit 2 = demux failure)"
   fi
 done
+
+# --- barcoded path: per-barcode aggregation across chunks -------------------
+# Mirrors the concat_fastq process (re-added to the shipped DAG in v0.1.1).
+if [[ $LSK -ne 1 ]]; then
+  log "aggregating per-barcode fastqs across ${#POD5_FILES[@]} chunk(s) (mirrors concat_fastq)"
+  mkdir -p "$OUTDIR/fastq"
+  CHUNK_FQS=()
+  while IFS= read -r f; do CHUNK_FQS+=("$f"); done \
+    < <(find "$DEMUX_CHUNKS_DIR" -mindepth 2 -maxdepth 2 -name '*.fastq.gz' | sort)
+  [[ ${#CHUNK_FQS[@]} -gt 0 ]] \
+    || die "no per-chunk fastqs found under $DEMUX_CHUNKS_DIR — demux produced nothing (see $LOGFILE)"
+  for fq in "${CHUNK_FQS[@]}"; do
+    chunk_id="$(basename "$(dirname "$fq")")"
+    bc="$(basename "$fq")"; bc="${bc%.fastq.gz}"
+    bc="${bc#"$chunk_id"_}"     # per-chunk demux names are <id>_<barcode> (mirror of bam2fq v0.1.1)
+    zcat "$fq" | gzip >> "$OUTDIR/fastq/${bc}.fastq.gz"
+  done
+  NBARS=$(ls "$OUTDIR/fastq"/*.fastq.gz 2>/dev/null | wc -l)
+  log "aggregated $NBARS barcode stream(s) into $OUTDIR/fastq"
+fi
 
 log "manual run complete; outputs under $OUTDIR"
 if [[ $LSK -ne 1 ]]; then

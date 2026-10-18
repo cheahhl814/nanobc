@@ -44,6 +44,11 @@ fi
 
 echo "demux_bam.sh: $BAM -> $OUTDIR ($ENVNOTE)" >&2
 
+# chunk id prefix — mirrors bam2fq's `-v chunk_id="${meta.id}"` (pipeline
+# v0.1.1): per-chunk fastq files are `<id>_<barcode>.fastq`, so chunk
+# concatenation downstream can group by barcode without staged-name collisions
+CHUNK_ID="$(basename "$BAM" .bam)"
+
 # All work happens in a scratch subshell whose cwd plays the role of the
 # Nextflow process work dir — the awk program writes relative `fastq_out/`,
 # exactly as bam2fq does. Publishing (mv into $OUTDIR) mirrors publishDir.
@@ -53,7 +58,7 @@ mkdir -p "$OUTDIR/scratch.$$"
   mkdir -p fastq_out
   set -o pipefail
   "${SAMTOOLS_CMD[@]}" "$BAM" | \
-  awk -v outdir="fastq_out" '
+  awk -v outdir="fastq_out" -v chunk_id="$CHUNK_ID" '
 BEGIN { OFS="\n" }
 {
     bc="unknown"
@@ -64,7 +69,7 @@ BEGIN { OFS="\n" }
         }
     }
 
-    fq = outdir "/" bc ".fastq"
+    fq = outdir "/" chunk_id "_" bc ".fastq"
     print "@"$1 >> fq
     print $10 >> fq
     print "+" >> fq

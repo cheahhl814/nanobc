@@ -1,6 +1,6 @@
 # nanobc
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue)](#-installation)
+[![Version](https://img.shields.io/badge/version-1.2.1-blue)](#-installation)
 [![Built with](https://img.shields.io/badge/built%20with-bioinfo--skill--creator-orange)](https://github.com/cheahhl814/bioinfo-skill-creator)
 [![Shape](https://img.shields.io/badge/shape-multi--tool%20pipeline-8A2BE2)](#-pipeline-overview)
 
@@ -15,9 +15,9 @@ with an explicit verdict.
 **Repository**: https://github.com/cheahhl814/nanobc
 
 > [!NOTE]
-> Skills **v1.2.0** · pipeline **v0.1.0** (updated 2026-10-18).
+> Skills **v1.2.1** · pipeline **v0.1.1** (updated 2026-10-18).
 >
-> v1.2.0 adds the **manual bash-recipes path** (`nf-nanopore-basecalling/runners/bash-recipes/`): every run now pins an execution mode — Nextflow runner (HPC/cluster/cohort) or manual bash recipes (single-machine, no-Nextflow) — recorded in `params.json:execution_mode` at preflight.
+> v1.2.1 fixes multi-chunk publishDir overwrites (pipeline v0.1.1: collision-proof chunk ids, barcoded per-barcode aggregation) and adds the **manual bash-recipes path** (`nf-nanopore-basecalling/runners/bash-recipes/`): every run now pins an execution mode — Nextflow runner (HPC/cluster/cohort) or manual bash recipes (single-machine, no-Nextflow) — recorded in `params.json:execution_mode` at preflight.
 
 ## Contents
 
@@ -162,8 +162,10 @@ Two paths through the pipeline, selected by `--kitname`:
 - **LSK kits** (e.g. `SQK-LSK114`): `dorado_basecall_lsk` emits FASTQ directly;
   optionally rsynced to a remote destination via `--transfer_dest`.
 - **Barcoded kits** (e.g. `SQK-RBK114`): `dorado_basecall` emits a BAM, which
-  is then demultiplexed per barcode (`bam2fq`), with each barcode's FASTQ
-  published directly to `<outdir>/fastq/` (incl. `unknown.fastq.gz`).
+  is demultiplexed per barcode (`bam2fq`, per-chunk files named
+  `<chunk-id>_<barcode>.fastq.gz`), then `concat_fastq` aggregates each
+  barcode across chunks — a single `<barcode>.fastq.gz` per barcode is
+  published to `<outdir>/fastq/` (incl. `unknown.fastq.gz`).
 
 > [!TIP]
 > Read each skill's `SKILL.md` for the full procedure, its ask-user stop points
@@ -179,7 +181,7 @@ bundle itself ships no environment of its own.
 | Tool | Version | Role |
 |:-----|:--------|:-----|
 | `dorado` | **not pinned** (ONT ships a standalone GPU binary) | basecaller — invoked via `params.dorado_bin`, version recorded per-run in `params.rationale.md` |
-| `samtools` / `seqtk` | pinned (`envs/*/pixi.lock`) | `bam2fq` demultiplexing |
+| `samtools` / `seqtk` | pinned (`envs/*/pixi.lock`) | `bam2fq` demultiplexing + `concat_fastq` per-barcode aggregation (pipeline v0.1.1) |
 | `nextflow` | required by the pipeline (≥ 25.06 for `-preview`) | workflow executor |
 | `jq` | system | `params.json` reads in every skill |
 | `tmux` | system (local profile) | session for `track-progress.sh` |
@@ -238,7 +240,7 @@ nanobc/
     ├── envs/samtools/{pixi.toml,pixi.lock}
     ├── envs/seqtk/{pixi.toml,pixi.lock}
     ├── runners/
-    │   └── bash-recipes/         # v1.2.0 — manual execution path
+    │   └── bash-recipes/         # v1.2.1 — manual execution path
     │       ├── run_basecalling.sh      # driver: LSK + barcoded paths, optional transfer
     │       ├── demux_bam.sh            # bam2fq equivalent (samtools pixi env + awk BC:Z)
     │       ├── test_smoke.sh           # CPU-only smoke test (no GPU/dorado/model needed)

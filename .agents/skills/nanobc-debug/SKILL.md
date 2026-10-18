@@ -1,7 +1,7 @@
 ---
 name: nanobc-debug
 description: 'Interpret a failed nf-nanopore-basecalling Nextflow run, including CUDA/GPU errors, NVIDIA driver/library version mismatches, GPU thermal throttling, Dorado model/kit errors, pixi env issues, and SLURM partition/gres mismatches. Use when nextflow log shows ERR, exit status 1, exit 137 (OOM-kill), a Dorado/samtools/seqtk/transfer process failed, or a run is unexpectedly slow.'
-version: 1.2.0
+version: 1.2.1
 updated: "2026-10-18"
 triggers:
   - "basecalling failed"
@@ -21,7 +21,7 @@ triggers:
 
 # nanobc-debug — nf-nanopore-basecalling failure interpreter
 
-> **v1.2.0.** Reactive failure interpreter for the `nanobc-*` bundle: reads the run history + work-dir evidence (either execution mode), ranks the top-3 hypotheses, and writes `$RUN_DIR/diagnosis.md` with concrete fix options. It does **not** re-run the pipeline.
+> **v1.2.1.*** Reactive failure interpreter for the `nanobc-*` bundle: reads the run history + work-dir evidence (either execution mode), ranks the top-3 hypotheses, and writes `$RUN_DIR/diagnosis.md` with concrete fix options. It does **not** re-run the pipeline.
 
 ## Audience
 
@@ -257,8 +257,22 @@ Always read the actual error before concluding — never pattern-match blindly.
 
 ### samtools / seqtk (pixi-managed: `bam2fq`)
 
-(The `concat_fastq`/`total_bases` processes remain defined in `modules/dorado.nf`
-but are no longer on the shipped DAG.)
+(The `total_bases` process remains defined in `modules/dorado.nf` but is not on
+the shipped DAG. `concat_fastq` was re-added to the DAG in pipeline v0.1.1 —
+it aggregates per-barcode fastqs across chunks and owns the files in
+`$OUTDIR/fastq`.)
+
+### Multi-chunk outputs (pipeline v0.1.1 / recipes v1.1.0)
+
+Historical signatures — pre-fix runs only. If these appear against a v0.1.1+
+pipeline, they are a real new bug, not the known one.
+
+| Signature | Likely cause | Suggested fix |
+|---|---|---|
+| Only the LAST chunk's fastq exists in `$OUTDIR`/`dorado_basecall_lsk`, named e.g. `N046.pod5.fastq.gz`; earlier chunks recoverable only from `work/` | Pre-v0.1.1 id bug: `Path.baseName` strips only the final extension, so chunk-split deliveries (`N046.pod5.001`…) all mapped to id `N046.pod5` and every chunk published the same name (`publishDir mode: 'copy'` overwrote) | Pull pipeline ≥ v0.1.1 (`pod5Id()`); re-publish recovered files from work/ or re-run |
+| `concat_fastq` fails: `input file name collision — multiple input files for ... barcodeNN.fastq.gz` with a PRE-v0.1.1 pipeline copy, or any pipeline whose bam2fq outputs lack the `<id>_` prefix | Per-chunk demux outputs shared a name; staging multiple same-named files into one concat task is impossible | Pull pipeline ≥ v0.1.1 (bam2fq prefixes chunk id; main.nf parses the barcode back) |
+| `$OUTDIR/fastq/barcodeNN.fastq.gz` read count << expected (fewer reads than the BAMs contain) | Pre-v0.1.1 barcoded path: each chunk's bam2fq published the same barcode file name to the same dir — later chunks silently overwrote earlier ones (data loss, same bug class as the LSK row above) | Pull pipeline ≥ v0.1.1 (`concat_fastq` aggregation); recover earlier chunks' reads from work/ if still present |
+| `pod5 id collision: 'X' and 'Y' both map to id 'Z'` at launch (pipeline v0.1.1+ / recipes v1.1.0+) | Two distinct pod5 files map to the same chunk id (e.g. `a.001.pod5` and `a.pod5.001` in the same glob) | Intentional guard, not an error: rename the chunks so the distinguishing part sits before `.pod5` |
 
 | Signature | Likely cause | Suggested fix |
 |---|---|---|
@@ -270,7 +284,7 @@ but are no longer on the shipped DAG.)
 
 ### Manual execution path (`run_basecalling.sh` / `demux_bam.sh`, mode = `manual`)
 
-Added v1.2.0. Evidence source: `$OUTDIR/logging/manual_run_<ts>.log` (the recipe appends dorado stderr here) — not `.command.err`.
+Added v1.2.1. Evidence source: `$OUTDIR/logging/manual_run_<ts>.log` (the recipe appends dorado stderr here) — not `.command.err`.
 
 | Signature in the recipe log / stderr | Likely cause | Suggested fix |
 |---|---|---|

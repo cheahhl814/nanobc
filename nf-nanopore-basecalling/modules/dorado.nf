@@ -70,7 +70,10 @@ process dorado_basecall {
 process bam2fq {
   tag "${meta.id}"
   label 'samtools'
-  publishDir "${params.outdir}/fastq", mode: 'copy'
+  // NOTE (v0.1.1): no publishDir here anymore — per-chunk `<barcode>.fastq.gz`
+  // outputs would overwrite each other across chunks in the same publish dir.
+  // bam2fq is now an intermediate step; concat_fastq aggregates per barcode
+  // and owns the files in ${params.outdir}/fastq.
   errorStrategy 'retry'
   maxRetries 2
 
@@ -85,9 +88,14 @@ process bam2fq {
   set -o pipefail
   mkdir -p fastq_out
 
+  # NOTE (v0.1.1): per-chunk outputs are prefixed with the chunk id
+  # (`<id>_<barcode>.fastq`) — without the prefix, multiple chunks all emit
+  # `barcodeNN.fastq.gz` under the same name and concat_fastq's staging col-
+  # lides (the multi-chunk overwrite bug). concat_fastq's channel wiring
+  # (main.nf) parses the barcode back from the name.
   pixi run --manifest-path ${baseDir}/envs/samtools/pixi.toml \
     samtools view ${bam} | \
-  awk -v outdir="fastq_out" '
+  awk -v outdir="fastq_out" -v chunk_id="${meta.id}" '
   BEGIN { OFS="\\n" }
   {
       bc="unknown"
@@ -98,7 +106,7 @@ process bam2fq {
           }
       }
 
-      fq = outdir "/" bc ".fastq"
+      fq = outdir "/" chunk_id "_" bc ".fastq"
       print "@"\$1 >> fq
       print \$10 >> fq
       print "+" >> fq
@@ -110,6 +118,9 @@ process bam2fq {
   """
 }
 
+// Aggregate each barcode's per-chunk fastqs into one file before publishing.
+// Back ON the shipped DAG as of v0.1.1 — per-chunk publishDir of bam2fq
+// silently overwrote earlier chunks' reads (see bam2fq note above).
 process concat_fastq {
   tag "${barcode}"
   label 'samtools'

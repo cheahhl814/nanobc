@@ -1,18 +1,28 @@
 # nanobc
 
-A Nextflow (DSL2) pipeline for Dorado-based Nanopore basecalling, followed by
-barcode demultiplexing and basic QC (per-barcode FASTQ integrity and read
-counts).
+A Nextflow (DSL2) pipeline (v0.1.1) for Dorado-based Nanopore basecalling,
+followed by barcode demultiplexing and basic QC (per-barcode FASTQ integrity
+and read counts).
+
+> v0.1.1 fixes multi-chunk output loss: chunk-split pod5 deliveries
+> (`N046.pod5.001` … `N046.pod5.NNN`) previously all collapsed to the id
+> `N046.pod5` (`Path.baseName` strips only the final extension), so every chunk
+> published the same `<id>.fastq.gz` and publishDir overwrote the earlier
+> chunks. Chunk ids now keep every part of the file name except the `.pod5`
+> marker; the barcoded path additionally aggregates per-barcode fastqs across
+> chunks (`concat_fastq` re-added to the DAG, with chunk-id-prefixed per-chunk
+> demux outputs) instead of overwriting per-chunk copies.
 
 Two paths through the pipeline, selected by `--kitname`:
 
 - **LSK kits** (e.g. `SQK-LSK114`): `dorado_basecall_lsk` emits FASTQ directly;
   optionally rsynced to a remote destination via `--transfer_dest`.
 - **Barcoded kits** (e.g. `SQK-RBK114`): `dorado_basecall` emits a BAM, which
-  is then demultiplexed per barcode (`bam2fq`), with each barcode's FASTQ
-  published directly to `<outdir>/fastq/` (incl. `unknown.fastq.gz`). The
-  older `concat_fastq`/`total_bases` modules remain defined in
-  `modules/dorado.nf` but are not on this path.)
+  is demultiplexed per barcode (`bam2fq` — per-chunk outputs named
+  `<chunk-id>_<barcode>.fastq.gz`), then `concat_fastq` aggregates each
+  barcode's chunk files into a single `<barcode>.fastq.gz` published to
+  `<outdir>/fastq/` (incl. `unknown.fastq.gz`). `total_bases` remains off
+  the DAG.
 
 ## Requirements
 

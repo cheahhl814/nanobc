@@ -1,9 +1,14 @@
 # runners/bash-recipes — the manual execution path
 
-> **v1.0.1** (recipes). Thin bash executors for `nf-nanopore-basecalling`, mirroring
+> **v1.1.0** (recipes). Thin bash executors for `nf-nanopore-basecalling`, mirroring
 > `modules/dorado.nf` + `main.nf` command-for-command. The Nextflow pipeline remains
 > the **source of truth**; these recipes are an alternative executor, not a second
 > implementation to maintain in parallel.
+>
+> v1.1.0 (parallel to pipeline v0.1.1) fixes the same multi-chunk overwrite bug in
+> the manual path: `pod5_id()` replaces the old `\${id%.*}` baseName mirror, per-chunk
+> demux files are named `<id>_<barcode>.fastq.gz` and aggregated per barcode into
+> `$OUTDIR/fastq/` after the loop (mirroring the re-wired `concat_fastq` process).
 
 ## Why two paths?
 
@@ -55,6 +60,6 @@ without this rule.
 
 ## Provenance
 
-Added v1.2.0 of the `nanobc-*` skill bundle, following the skillforge convention for
+Added v1.2.1 of the `nanobc-*` skill bundle, following the skillforge convention for
 the bash-recipes/nextflow-runner dual path. The recipes consume the same
 `envs/*/pixi.toml` environments as the pipeline.

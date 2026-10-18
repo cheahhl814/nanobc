@@ -1,6 +1,6 @@
 # nf-nanopore-basecalling agentic skills
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue)](#-installation)
+[![Version](https://img.shields.io/badge/version-1.2.1-blue)](#-installation)
 [![Type](https://img.shields.io/badge/type-agent%20skill-blueviolet)](#-installation)
 [![Built with](https://img.shields.io/badge/built%20with-bioinfo--skill--creator-orange)](https://github.com/cheahhl814/bioinfo-skill-creator)
 [![Shape](https://img.shields.io/badge/shape-multi--tool%20pipeline-8A2BE2)](#-pipeline-overview)
@@ -10,7 +10,7 @@ Agentic companion skills for the `nf-nanopore-basecalling` pipeline (Dorado base
 **Repository**: https://github.com/cheahhl814/nanobc
 
 > [!NOTE]
-> Current version: **v1.2.0** (updated 2026-10-18).
+> Current version: **v1.2.1** (updated 2026-10-18).
 
 ## Contents
 
@@ -106,7 +106,7 @@ All conda-installable tools are pinned via pixi manifests in the **pipeline** re
 | Tool | Version | Role |
 |:-----|:--------|:-----|
 | `dorado` | **not pinned** (ONT ships a standalone GPU binary) | basecaller — invoked via `params.dorado_bin`, version recorded per-run in `params.rationale.md` |
-| `samtools` / `seqtk` | pinned (`envs/*/pixi.lock`) | `bam2fq` demultiplexing (`concat_fastq`/`total_bases` modules exist but are no longer on the shipped DAG) |
+| `samtools` / `seqtk` | pinned (`envs/*/pixi.lock`) | `bam2fq` demultiplexing + `concat_fastq` per-barcode aggregation (pipeline v0.1.1); `total_bases` remains off the shipped DAG |
 | `nextflow` | required by the pipeline **in mode `nextflow`** (≥ 25.06 for `-preview`) | workflow executor |
 | bash + coreutils | required in mode `manual` | `run_basecalling.sh` / `demux_bam.sh` (no Nextflow needed; samtools still via the pinned pixi env) |
 | `jq` | system | `params.json` reads in every skill |
@@ -154,7 +154,7 @@ The **runner itself** lives in the pipeline tree (it must sit next to `modules/`
 nf-nanopore-basecalling/
 ├── main.nf, nextflow.config, modules/, envs/, params/   # (unchanged)
 └── runners/
-    └── bash-recipes/           # v1.2.0 — the manual execution path
+    └── bash-recipes/           # v1.2.1 — the manual execution path
         ├── run_basecalling.sh  # driver (LSK + barcoded paths, optional transfer)
         ├── demux_bam.sh        # bam2fq equivalent (samtools pixi env + awk BC:Z)
         ├── test_smoke.sh       # CPU-only smoke test (no GPU/dorado/model needed)

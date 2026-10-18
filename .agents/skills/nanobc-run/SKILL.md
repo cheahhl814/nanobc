@@ -1,7 +1,7 @@
 ---
 name: nanobc-run
 description: 'Run nf-nanopore-basecalling end-to-end in either execution mode: the Nextflow runner (default for HPC/cluster/cohort runs, trace reports) or the manual bash-recipes path (single-machine, no-Nextflow situations). Includes applying any user-side nextflow.config override. Use when a user wants to basecall pod5 files and may not know the full workflow. Walks them through preflight → run (mode-selected) → qc/debug. Router: invoked directly by these triggers or by handoff from the other nanobc-* skills.'
-version: 1.2.0
+version: 1.2.1
 updated: "2026-10-18"
 triggers:
   - "run the basecalling pipeline"
@@ -18,7 +18,7 @@ triggers:
 
 # nanobc-run — nf-nanopore-basecalling end-to-end orchestrator
 
-> **v1.2.0.** Thin router for the `nanobc-*` skill family: detects the user's stage from filesystem evidence, offers the execution-mode fork (§0.6a), routes to the right skill/path, and hands off explicitly.
+> **v1.2.1.*** Thin router for the `nanobc-*` skill family: detects the user's stage from filesystem evidence, offers the execution-mode fork (§0.6a), routes to the right skill/path, and hands off explicitly.
 
 ## Audience
 
@@ -257,7 +257,7 @@ Behaviour mirrors the Nextflow processes exactly:
 - **LSK path** = `dorado_basecall_lsk`: `dorado basecaller -x cuda:all --emit-fastq MODEL POD5 | gzip`, published to `$OUTDIR/dorado_basecall_lsk/<id>.fastq.gz`, with `set -o pipefail` semantics and an explicit empty-output guard (the pipeline's #1 historical silent-failure mode).
 - **Barcoded path** = `dorado_basecall` + `bam2fq`: BAM per chunk in `$OUTDIR/`, then `demux_bam.sh` (samtools via the pinned `envs/samtools` pixi env) publishes `$OUTDIR/fastq/<barcode>.fastq.gz` incl. `unknown.fastq.gz`.
 - **Optional** `--transfer_dest user@host:/path` mirrors the `transfer` process (ssh mkdir + rsync), LSK only.
-- `concat_fastq` / `total_bases` are intentionally absent — they are off the shipped Nextflow DAG too.
+- `total_bases` is intentionally absent (also off the shipped DAG). The manual path mirrors the pipeline's `concat_fastq` v0.1.1 behaviour: per-chunk demux output is kept under `$OUTDIR/demux_chunks/<id>/` and aggregated per barcode into `$OUTDIR/fastq/` after the loop.
 - A full transcript lands in `$OUTDIR/logging/manual_run_<timestamp>.log` — hand this file to `nanobc-debug` on failure instead of `.nextflow.log`.
 - No resume: completed chunks are re-run on retry. For interruptible/long runs recommend mode `nextflow` instead.
 - Hardware prerequisites are unchanged: dorado still needs a CUDA GPU and a model directory — the manual path removes Nextflow from the equation, not the GPU.
@@ -382,4 +382,4 @@ After routing, explicitly state which skill was invoked and which file it produc
 
 ## Provenance
 
-Part of the `nanobc` skill bundle (v1.2.0), authored following the [bioinfo-skill-creator](https://github.com/cheahhl814/bioinfo-skill-creator) meta-skill conventions (filesystem evidence chain, explicit stop points, verdict gates) and the skillforge bash-recipes/nextflow-runner dual-path convention. Sibling skills: `nanobc-preflight`, `nanobc-debug`, `nanobc-qc`.
+Part of the `nanobc` skill bundle (v1.2.1), authored following the [bioinfo-skill-creator](https://github.com/cheahhl814/bioinfo-skill-creator) meta-skill conventions (filesystem evidence chain, explicit stop points, verdict gates) and the skillforge bash-recipes/nextflow-runner dual-path convention. Sibling skills: `nanobc-preflight`, `nanobc-debug`, `nanobc-qc`.
