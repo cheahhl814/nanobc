@@ -1,8 +1,8 @@
 ---
 name: nanobc-debug
 description: 'Interpret a failed nf-nanopore-basecalling Nextflow run, including CUDA/GPU errors, NVIDIA driver/library version mismatches, GPU thermal throttling, Dorado model/kit errors, pixi env issues, and SLURM partition/gres mismatches. Use when nextflow log shows ERR, exit status 1, exit 137 (OOM-kill), a Dorado/samtools/seqtk/transfer process failed, or a run is unexpectedly slow.'
-version: 1.1.0
-updated: "2026-09-17"
+version: 1.2.0
+updated: "2026-10-18"
 triggers:
   - "basecalling failed"
   - "dorado error"
@@ -21,7 +21,7 @@ triggers:
 
 # nanobc-debug — nf-nanopore-basecalling failure interpreter
 
-> **v1.1.0.** Reactive failure interpreter for the `nanobc-*` bundle: reads the run history + work-dir evidence, ranks the top-3 hypotheses, and writes `$RUN_DIR/diagnosis.md` with concrete fix options. It does **not** run the pipeline.
+> **v1.2.0.** Reactive failure interpreter for the `nanobc-*` bundle: reads the run history + work-dir evidence (either execution mode), ranks the top-3 hypotheses, and writes `$RUN_DIR/diagnosis.md` with concrete fix options. It does **not** re-run the pipeline.
 
 ## Audience
 
@@ -49,14 +49,17 @@ Do NOT use this skill if:
 
 ### Inputs (consumed)
 
-| Path | Source | Required? |
-| --- | --- | --- |
-| `$LAUNCH_DIR/.nextflow.log` (+ `.nextflow/` history) | previous `nextflow run` (resolved in §0.1) | yes |
-| Run name / session id | `$RUN_NAME` env or `nextflow log -q` (§0.1) | yes |
-| `$RUN_DIR/params.json` | `nanobc-preflight` | yes (kit/model/outdir context) |
-| `$RUN_DIR/nextflow.config.<env>.local` | `nanobc-preflight` (optional) | no — tells whether an override was in force |
-| `$WORKDIR/.command.err` / `.log` / `.command.sh` / `.exitcode` | Nextflow task work dirs (§1) | yes, per failing task |
-| `nvidia-smi` on the compute node | node (§1.5/§1.6) | no (best-effort; may itself be broken) |
+Evidence location depends on the **execution mode** of the failed run (`params.json:execution_mode`, §0.1):
+
+| Path | Source | Required? | Mode |
+| --- | --- | --- | --- |
+| `$LAUNCH_DIR/.nextflow.log` (+ `.nextflow/` history) | previous `nextflow run` (resolved in §0.1) | yes | `nextflow` |
+| Run name / session id | `$RUN_NAME` env or `nextflow log -q` (§0.1) | yes | `nextflow` |
+| `$OUTDIR/logging/manual_run_<ts>.log` | `run_basecalling.sh` transcript (§0.1) | yes | `manual` |
+| `$RUN_DIR/params.json` | `nanobc-preflight` | yes (kit/model/outdir context) | both |
+| `$RUN_DIR/nextflow.config.<env>.local` | `nanobc-preflight` (optional) | no — tells whether an override was in force | `nextflow` |
+| `$WORKDIR/.command.err` / `.log` / `.command.sh` / `.exitcode` | Nextflow task work dirs (§1) | yes, per failing task | `nextflow` |
+| `nvidia-smi` on the compute node | node (§1.5/§1.6) | no (best-effort; may itself be broken) | both |
 
 ### Outputs (produced)
 
@@ -67,7 +70,7 @@ Do NOT use this skill if:
 
 ### Verdict gate
 
-`nanobc-run` **refuses to route to `nanobc-qc`** until a re-run exits 0 — a `diagnosis.md` without a **"Recommended next action"** block (§3) is incomplete and must be regenerated. Conversely, never re-run `nextflow run` without the user having picked one of the fix options from `diagnosis.md` (SP1, §0.5).
+`nanobc-run` **refuses to route to `nanobc-qc`** until a re-run exits 0 — a `diagnosis.md` without a **"Recommended next action"** block (§3) is incomplete and must be regenerated. Conversely, never re-run the pipeline (either execution mode) without the user having picked one of the fix options from `diagnosis.md` (SP1, §0.5).
 
 ### 0.1 Locate the pipeline, the launch dir, and the run
 
@@ -75,6 +78,30 @@ Do NOT use this skill if:
 : "${NANOBC_HOME:=$(cd "$SKILL_DIR/../../../nf-nanopore-basecalling" 2>/dev/null && pwd)}"
 test -f "$NANOBC_HOME/main.nf" || { echo "Cannot locate nf-nanopore-basecalling. Set NANOBC_HOME."; exit 1; }
 
+# Execution mode of the failed run — decides WHERE the evidence lives.
+MODE=$(jq -r '.execution_mode // "nextflow"' < "$RUN_DIR/params.json" 2>/dev/null)
+```
+
+**Mode = `manual`** — there is no `.nextflow.log` and no work-dir tree. The evidence is the recipe transcript plus the output tree:
+
+```bash
+# the recipe writes one log per invocation under $OUTDIR/logging/
+LOG=$(ls -t "$OUTDIR"/logging/manual_run_*.log 2>/dev/null | head -1)
+test -n "$LOG" || { echo "No manual_run_*.log found under "$OUTDIR"/logging — the recipe may never have started"; exit 1; }
+# dorado stderr is appended to the same log (the recipe redirects 2>>"$LOGFILE");
+# read it tail-first — the failure is almost always at the bottom.
+tail -n 50 "$LOG"
+# per-process state in the output tree mirrors the pipeline's publishDir layout:
+#   LSK:        $OUTDIR/dorado_basecall_lsk/<id>.fastq.gz
+#   barcoded:   $OUTDIR/<id>.bam + $OUTDIR/fastq/<barcode>.fastq.gz
+ls -la "$OUTDIR" "$OUTDIR"/fastq 2>/dev/null
+```
+
+There is no manual-path analogue of `-resume` (every pod5 chunk re-runs); a diagnosis fix therefore means re-running `run_basecalling.sh` whole — factor that into the fix options (e.g. test on one chunk first via a narrowed `--pod5` glob).
+
+**Mode = `nextflow`** — proceed as below:
+
+```bash
 # RUN_DIR = wherever params.json / reports live (nanobc-run may use a dedicated per-sample dir).
 # LAUNCH_DIR = the directory nextflow was launched from. Its `.nextflow/` + `.nextflow.log`
 #   hold the run history that `nextflow log` reads — usually $NANOBC_HOME, NOT the artifacts
@@ -240,6 +267,20 @@ but are no longer on the shipped DAG.)
 | `samtools: command not found` (inside the pixi run) | Broken/partial pixi env install | Re-run `pixi install --manifest-path $NANOBC_HOME/envs/samtools/pixi.toml --force-reinstall` |
 | `awk: ... unexpected` in `bam2fq` | BAM has no `BC:Z:` tags at all (e.g. this BAM came from an LSK-style basecall accidentally routed through the barcode branch) | Confirm `--kitname` truly is a barcoded kit; check `samtools view <bam> | head -1` for a `BC:Z:` field |
 | Almost all reads end up in `unknown.fastq.gz`, few/none in real barcode files | Reads genuinely weren't demultiplexed (kit/model mismatch, or basecalling ran without a barcoding-capable kit setting), not a script bug | Re-check `--kitname` and the Dorado invocation in `dorado_basecall` (`modules/dorado.nf:63-65`); this is a Dorado-level demux outcome, not something `bam2fq`'s awk script can fix |
+
+### Manual execution path (`run_basecalling.sh` / `demux_bam.sh`, mode = `manual`)
+
+Added v1.2.0. Evidence source: `$OUTDIR/logging/manual_run_<ts>.log` (the recipe appends dorado stderr here) — not `.command.err`.
+
+| Signature in the recipe log / stderr | Likely cause | Suggested fix |
+|---|---|---|
+| `dorado binary '...' not resolvable` (script exits 1) | Dorado not on `$PATH` on this machine, or `--dorado_bin` wrong | Same as the nextflow-mode row — pass `--dorado_bin <abs path>` explicitly; the recipe's check is stricter than Nextflow's (it fails before basecalling, not per-task) |
+| `pod5 glob matches nothing: ...` (script exits 1) | Glob wrong, run from wrong cwd, or chunks moved | Fix the glob with absolute paths (params.json parity: preflight always writes absolute paths) |
+| `awk: cannot open "fastq_out/..." for output (No such file or directory)` | Demux ran with a cwd where `fastq_out/` doesn't exist — fixed in recipes v1.0.1 (scratch subshell mirrors bam2fq's work-dir semantics); older copies of `demux_bam.sh` hit this | Update `demux_bam.sh`; historical logs showing this are explained by the old version, not by the BAM |
+| `gzip: fastq_out/*.fastq: No such file or directory` (right after the awk error above) | Same root cause as the awk row — awk wrote nothing, so the glob is empty | Same — fix the demux cwd/scratch, never the awk itself |
+| `output ... is EMPTY — dorado likely produced nothing` (script exits via die) | Same empty-fastq failure mode as nextflow's masked-pipefail row (§2 Dorado table) — the recipe's guard catches it explicitly where the old pipeline silently succeeded | Read the dorado stderr tail in the recipe log; check the GPU rows above |
+| `demux_bam.sh` exit 2 with `check BC:Z tags` hint | samtools or awk failed inside the demux subshell — usually an LSK-style BAM routed through the barcoded path | Confirm `--kitname` matches the basecall actually performed; `samtools view <bam> | head -1` for a `BC:Z:` field |
+| `WARN the lock file is up-to-date but uses an older format (v6)` from pixi | Purely informational pixi format notice | Not an error — do not list it as a failure cause |
 
 ### transfer (rsync/ssh, LSK path only)
 

@@ -1,6 +1,6 @@
 # nanobc
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue)](#-installation)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue)](#-installation)
 [![Built with](https://img.shields.io/badge/built%20with-bioinfo--skill--creator-orange)](https://github.com/cheahhl814/bioinfo-skill-creator)
 [![Shape](https://img.shields.io/badge/shape-multi--tool%20pipeline-8A2BE2)](#-pipeline-overview)
 
@@ -15,7 +15,9 @@ with an explicit verdict.
 **Repository**: https://github.com/cheahhl814/nanobc
 
 > [!NOTE]
-> Skills **v1.1.0** · pipeline **v0.1.0** (updated 2026-09-17).
+> Skills **v1.2.0** · pipeline **v0.1.0** (updated 2026-10-18).
+>
+> v1.2.0 adds the **manual bash-recipes path** (`nf-nanopore-basecalling/runners/bash-recipes/`): every run now pins an execution mode — Nextflow runner (HPC/cluster/cohort) or manual bash recipes (single-machine, no-Nextflow) — recorded in `params.json:execution_mode` at preflight.
 
 ## Contents
 
@@ -53,16 +55,18 @@ ln -s "$(pwd)/.agents/skills/nanobc-debug"      <your-agents-skills-dir>/
 ln -s "$(pwd)/.agents/skills/nanobc-qc"         <your-agents-skills-dir>/
 ```
 
-**Pipeline runtime** (needed wherever `nextflow run` actually executes):
+**Pipeline runtime** (needed wherever the run actually executes):
 
 - [Nextflow](https://www.nextflow.io/) >= 23.04 (>= 25.06 if you want the
-  `-preview` dry-run flag — on older versions it is spelled `-dry-run`)
+  `-preview` dry-run flag — on older versions it is spelled `-dry-run`) —
+  needed in mode `nextflow` only
 - [Dorado](https://github.com/nanoporetech/dorado) — a standalone GPU binary
   from ONT; put it on `$PATH` or point `--dorado_bin` at it. A CUDA-capable
-  GPU is required for basecalling.
+  GPU is required for basecalling in **both modes**.
 - [pixi](https://pixi.sh/) — `samtools`/`seqtk` resolve through pinned
   environments on demand (`pixi run --manifest-path envs/<tool>/pixi.toml ...`
-  from inside each process); no manual install of these tools is needed.
+  from inside each process, and on the manual path inside `demux_bam.sh`); no
+  manual install of these tools is needed.
 
 > [!TIP]
 > The skills directory lives at `.agents/skills/` (with the `s`) — the
@@ -86,6 +90,8 @@ state of your run directory and routes to the right skill.
 
 ### Quick start — pipeline
 
+**Nextflow runner** (HPC/SLURM, cohort, trace/report/timeline artifacts):
+
 ```bash
 cd nf-nanopore-basecalling
 nextflow run main.nf -profile slurm \
@@ -94,10 +100,22 @@ nextflow run main.nf -profile slurm \
   --kitname SQK-LSK114
 ```
 
-`--pod5` and `--model` are required; the pipeline exits early with an error if
-either is missing. See
-[`nf-nanopore-basecalling/README.md`](nf-nanopore-basecalling/README.md) for
-the full parameter table, profiles, and output layout.
+**Manual bash recipes** (single machine, no Nextflow required — still needs the CUDA GPU + dorado + model):
+
+```bash
+./nf-nanopore-basecalling/runners/bash-recipes/run_basecalling.sh \
+  --pod5   "input_folder/N046/*.pod5" \
+  --model  /path/to/dna_r10.4.1_e8.2_400bps_sup@v5.2.0 \
+  --kitname SQK-LSK114 --outdir ./results/N046
+
+# validate the recipes first on any CPU-only machine (no GPU/dorado/model needed):
+./nf-nanopore-basecalling/runners/bash-recipes/test_smoke.sh
+```
+
+`--pod5` and `--model` are required in both modes; execution aborts early without them. See
+[`nf-nanopore-basecalling/README.md`](nf-nanopore-basecalling/README.md) for the full parameter table
+and [`runners/bash-recipes/README.md`](nf-nanopore-basecalling/runners/bash-recipes/README.md) for the
+two-mode trade-off table.
 
 ### Natural-language prompts that trigger the bundle
 
@@ -118,7 +136,7 @@ run directory — all phase artifacts land there — and invoke the skill you ne
 RUN_DIR=/path/to/run-dir          # one per sample / pod5 batch
 
 nanobc-preflight   # Phase 1 — validate pod5/model/kit/GPU/cluster, write params.json + params.rationale.md
-nanobc-run         # Phase 2 — execute nextflow run (after preflight verdict ≥ GO-WITH-WARNINGS)
+nanobc-run         # Phase 2 — execute the run, mode from params.json:execution_mode (after preflight verdict ≥ GO-WITH-WARNINGS)
 nanobc-qc          # Phase 3 — check output integrity, write report.md (after the run finishes)
 nanobc-debug       # On failure — interpret the run via the signature library, write diagnosis.md
 ```
@@ -134,8 +152,8 @@ phases is the **filesystem**, not agent memory.
 
 | # | Phase | Goal | Skill | Artifact produced |
 |:--|:------|:-----|:------|:------------------|
-| **1** | **Preflight** | Validate pod5/model/kit/GPU/cluster, write params | `nanobc-preflight` | `$RUN_DIR/params.json` + `params.rationale.md` (+ optional `nextflow.config.<env>.local`) |
-| **2** | **Run** | Execute `nextflow run` with the params | `nanobc-run` | FASTQs under `$OUTDIR` (`dorado_basecall_lsk/` or `fastq/` incl. `unknown`; optional `$RUN_DIR/progress.log` via `track-progress.sh`) |
+| **1** | **Preflight** | Validate pod5/model/kit/GPU/cluster + execution mode, write params | `nanobc-preflight` | `$RUN_DIR/params.json` (incl. `execution_mode`) + `params.rationale.md` (+ optional `nextflow.config.<env>.local`) |
+| **2** | **Run** | Execute the run, mode from `params.json:execution_mode` | `nanobc-run` | FASTQs under `$OUTDIR` (identical layouts in both modes) |
 | **3** | **Debug** | Interpret a failed run | `nanobc-debug` | `$RUN_DIR/diagnosis.md` (top-3 ranked hypotheses + Option A/B fixes) |
 | **4** | **QC** | Check output integrity + read counts | `nanobc-qc` | `$RUN_DIR/report.md` (overall PASS / PASS-WITH-WARNINGS / FAIL) |
 
@@ -202,15 +220,15 @@ nanobc/
 ├── .gitignore
 ├── .agents/skills/
 │   ├── README.md                 # Skills-bundle README (deeper detail)
-│   ├── nanobc-run/               # Orchestrator (router — start here)
+│   ├── nanobc-run/               # Orchestrator + execution-mode fork (router — start here)
 │   │   ├── SKILL.md
-│   │   └── track-progress.sh     # Optional background progress logger
-│   ├── nanobc-preflight/         # Phase 1 — params + GPU/cluster evidence
+│   │   └── track-progress.sh     # Optional background progress logger (nextflow mode)
+│   ├── nanobc-preflight/         # Phase 1 — params + GPU/cluster/execution-mode evidence
 │   │   ├── SKILL.md
 │   │   └── gpu-fan.sh            # Optional GPU fan helper (local workstation)
-│   ├── nanobc-debug/             # Failure interpreter
+│   ├── nanobc-debug/             # Failure interpreter (both modes)
 │   │   └── SKILL.md
-│   └── nanobc-qc/                # Post-run QC
+│   └── nanobc-qc/                # Post-run QC (mode-agnostic)
 │       └── SKILL.md
 └── nf-nanopore-basecalling/      # The pipeline (clean, shippable, its own tree)
     ├── main.nf
@@ -219,6 +237,12 @@ nanobc/
     ├── params/example.json
     ├── envs/samtools/{pixi.toml,pixi.lock}
     ├── envs/seqtk/{pixi.toml,pixi.lock}
+    ├── runners/
+    │   └── bash-recipes/         # v1.2.0 — manual execution path
+    │       ├── run_basecalling.sh      # driver: LSK + barcoded paths, optional transfer
+    │       ├── demux_bam.sh            # bam2fq equivalent (samtools pixi env + awk BC:Z)
+    │       ├── test_smoke.sh           # CPU-only smoke test (no GPU/dorado/model needed)
+    │       └── README.md               # two-mode trade-off table + divergence rule
     └── README.md                 # Pipeline parameter table, profiles, output layout
 ```
 

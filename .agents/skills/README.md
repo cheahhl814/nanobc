@@ -1,16 +1,16 @@
 # nf-nanopore-basecalling agentic skills
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue)](#-installation)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue)](#-installation)
 [![Type](https://img.shields.io/badge/type-agent%20skill-blueviolet)](#-installation)
 [![Built with](https://img.shields.io/badge/built%20with-bioinfo--skill--creator-orange)](https://github.com/cheahhl814/bioinfo-skill-creator)
 [![Shape](https://img.shields.io/badge/shape-multi--tool%20pipeline-8A2BE2)](#-pipeline-overview)
 
-Agentic companion skills for the `nf-nanopore-basecalling` Nextflow pipeline (Dorado basecalling → optional demultiplexing → base-count QC). Four sibling skills — `nanobc-run` (orchestrator), `nanobc-preflight` (parameter/GPU/cluster preparation), `nanobc-debug` (failure interpretation), `nanobc-qc` (output integrity QC) — form a **filesystem evidence chain**: each phase writes the artifacts the next phase consumes and gates progression with an explicit verdict. The pipeline itself is untouched; the skills consume its inputs and outputs.
+Agentic companion skills for the `nf-nanopore-basecalling` pipeline (Dorado basecalling → optional demultiplexing → base-count QC), executable in **two modes**: the Nextflow DSL2 runner (default for HPC/cluster/cohort runs) or the manual bash-recipes path (`runners/bash-recipes/`) for single-machine / no-Nextflow situations. Four sibling skills — `nanobc-run` (orchestrator + execution-mode fork), `nanobc-preflight` (parameter/GPU/cluster/execution-mode preparation), `nanobc-debug` (failure interpretation, both modes), `nanobc-qc` (output integrity QC) — form a **filesystem evidence chain**: each phase writes the artifacts the next phase consumes and gates progression with an explicit verdict. The pipeline itself is untouched; the skills consume its inputs and outputs.
 
 **Repository**: https://github.com/cheahhl814/nanobc
 
 > [!NOTE]
-> Current version: **v1.1.0** (updated 2026-09-17).
+> Current version: **v1.2.0** (updated 2026-10-18).
 
 ## Contents
 
@@ -76,8 +76,8 @@ Each skill is independently triggerable — set a run directory (all phase artif
 ```bash
 RUN_DIR=/path/to/run-dir          # one per sample / pod5 batch
 
-nanobc-preflight   # Phase 1 — validate pod5/model/kit/GPU/cluster, write params.json + params.rationale.md
-nanobc-run         # Phase 2 — execute nextflow run (after preflight verdict ≥ GO-WITH-WARNINGS)
+nanobc-preflight   # Phase 1 — validate pod5/model/kit/GPU/cluster/execution-mode, write params.json (incl. execution_mode) + params.rationale.md
+nanobc-run         # Phase 2 — execute the run mode-selected from params.json:execution_mode (after preflight verdict ≥ GO-WITH-WARNINGS)
 nanobc-qc          # Phase 3 — check output integrity, write report.md (after the run finishes)
 nanobc-debug       # On failure — interpret the run via the signature library, write diagnosis.md
 ```
@@ -92,7 +92,7 @@ The agentic layer follows a phased evidence chain. Each phase consumes the artif
 | # | Phase | Goal | Skill | Artifact produced |
 |:--|:------|:-----|:------|:------------------|
 | **1** | **Preflight** | Validate pod5/model/kit/GPU/cluster, write params | `nanobc-preflight` | `$RUN_DIR/params.json` + `params.rationale.md` (+ optional `nextflow.config.<env>.local`) |
-| **2** | **Run** | Execute `nextflow run` with the params | `nanobc-run` | FASTQs under `$OUTDIR` (`dorado_basecall_lsk/` or `fastq/` incl. `unknown`; optional `$RUN_DIR/progress.log` via `track-progress.sh`) |
+| **2** | **Run** | Execute the run (mode from `params.json:execution_mode`: Nextflow runner or manual bash recipes) | `nanobc-run` | FASTQs under `$OUTDIR` — identical layouts in both modes (`dorado_basecall_lsk/` or `fastq/` incl. `unknown`; optional `$RUN_DIR/progress.log` via `track-progress.sh`, or `$OUTDIR/logging/manual_run_<ts>.log` on the manual path) |
 | **3** | **Debug** | Interpret a failed run | `nanobc-debug` | `$RUN_DIR/diagnosis.md` (top-3 ranked hypotheses + Option A/B fixes) |
 | **4** | **QC** | Check output integrity + base/read counts | `nanobc-qc` | `$RUN_DIR/report.md` (overall PASS / PASS-WITH-WARNINGS / FAIL) |
 
@@ -107,7 +107,8 @@ All conda-installable tools are pinned via pixi manifests in the **pipeline** re
 |:-----|:--------|:-----|
 | `dorado` | **not pinned** (ONT ships a standalone GPU binary) | basecaller — invoked via `params.dorado_bin`, version recorded per-run in `params.rationale.md` |
 | `samtools` / `seqtk` | pinned (`envs/*/pixi.lock`) | `bam2fq` demultiplexing (`concat_fastq`/`total_bases` modules exist but are no longer on the shipped DAG) |
-| `nextflow` | required by the pipeline (≥ 25.06 for `-preview`) | workflow executor |
+| `nextflow` | required by the pipeline **in mode `nextflow`** (≥ 25.06 for `-preview`) | workflow executor |
+| bash + coreutils | required in mode `manual` | `run_basecalling.sh` / `demux_bam.sh` (no Nextflow needed; samtools still via the pinned pixi env) |
 | `jq` | system | `params.json` reads in every skill |
 | `tmux` | system (local profile) | session for `track-progress.sh` |
 | `nvidia-smi` / `nvidia-settings` | driver-provided | GPU health checks (§2e) + optional fan helper `gpu-fan.sh` |
@@ -135,19 +136,32 @@ nanobc/                         # this repo (local checkout dir can be anything)
 ├── README.md                     # This file (bundle-level)
 └── .agents/skills/
     ├── README.md                 # This file's source location
-    ├── nanobc-run/               # Orchestrator (router — start here)
+    ├── nanobc-run/               # Orchestrator + execution-mode fork (router — start here)
     │   ├── SKILL.md
-    │   └── track-progress.sh     # Optional background progress logger
-    ├── nanobc-preflight/         # Phase 1 — params + GPU/cluster evidence
+    │   └── track-progress.sh     # Optional background progress logger (nextflow mode)
+    ├── nanobc-preflight/         # Phase 1 — params + GPU/cluster/execution-mode evidence
     │   ├── SKILL.md
     │   └── gpu-fan.sh            # Optional GPU fan helper (local workstation)
-    ├── nanobc-debug/             # Failure interpreter
+    ├── nanobc-debug/             # Failure interpreter (both modes)
     │   └── SKILL.md
-    └── nanobc-qc/                # Post-run QC
+    └── nanobc-qc/                # Post-run QC (mode-agnostic)
         └── SKILL.md
 ```
 
-The four skills share one principle: **the agent reasons; the pipeline executes**.
+The **runner itself** lives in the pipeline tree (it must sit next to `modules/` and `envs/` it mirrors):
+
+```text
+nf-nanopore-basecalling/
+├── main.nf, nextflow.config, modules/, envs/, params/   # (unchanged)
+└── runners/
+    └── bash-recipes/           # v1.2.0 — the manual execution path
+        ├── run_basecalling.sh  # driver (LSK + barcoded paths, optional transfer)
+        ├── demux_bam.sh        # bam2fq equivalent (samtools pixi env + awk BC:Z)
+        ├── test_smoke.sh       # CPU-only smoke test (no GPU/dorado/model needed)
+        └── README.md           # trade-off table + divergence rule
+```
+
+- The four skills share one principle: **the agent reasons; the pipeline executes** — in whichever of the two execution modes the run pinned (`params.json:execution_mode`).
 
 ## 📦 Relocating
 
@@ -188,6 +202,7 @@ When you encounter a new failure mode, add a row to the signature table in `nano
 - No per-process `withName:` overrides — `nextflow.config` here uses **labels** (`dorado`, `samtools`, `seqtk`, `transfer`), so any user-side override must use `withLabel:`, not `withName:`.
 - Dorado itself has no conda/pixi package (ONT ships it as a standalone GPU binary) — it is invoked via `params.dorado_bin`, resolved from `$PATH` by default. Its version is **not** pinned by the repo; the preflight/rationale step is the only place that version gets recorded per run.
 - No `pixi.toml` / `bin/skill-update-check.py` of its own (unlike skills generated by bioinfo-skill-creator) — the tool environment is pinned in the pipeline repo's `envs/`, and drift detection is plain git ([Update check](#-update-check)).
+- The manual bash-recipes path has **no resume/retry**: every pod5 chunk re-runs on retry. For long or interruptible runs, use the Nextflow runner (`execution_mode: "nextflow"`).
 
 ## Provenance
 

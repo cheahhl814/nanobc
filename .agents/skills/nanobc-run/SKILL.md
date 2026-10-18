@@ -1,8 +1,8 @@
 ---
 name: nanobc-run
-description: 'Run nf-nanopore-basecalling end-to-end, including applying any user-side nextflow.config override. Use when a user wants to basecall pod5 files and may not know the full workflow. Walks them through preflight → nextflow run → qc/debug. Router: invoked directly by these triggers or by handoff from the other nanobc-* skills.'
-version: 1.1.0
-updated: "2026-09-17"
+description: 'Run nf-nanopore-basecalling end-to-end in either execution mode: the Nextflow runner (default for HPC/cluster/cohort runs, trace reports) or the manual bash-recipes path (single-machine, no-Nextflow situations). Includes applying any user-side nextflow.config override. Use when a user wants to basecall pod5 files and may not know the full workflow. Walks them through preflight → run (mode-selected) → qc/debug. Router: invoked directly by these triggers or by handoff from the other nanobc-* skills.'
+version: 1.2.0
+updated: "2026-10-18"
 triggers:
   - "run the basecalling pipeline"
   - "basecall this pod5 folder"
@@ -11,11 +11,14 @@ triggers:
   - "start a basecalling run"
   - "dorado pipeline"
   - "nextflow config local machine basecalling"
+  - "basecall without nextflow"
+  - "manual basecalling"
+  - "run basecalling bash"
 ---
 
 # nanobc-run — nf-nanopore-basecalling end-to-end orchestrator
 
-> **v1.1.0.** Thin router for the `nanobc-*` skill family: detects the user's stage from filesystem evidence, routes to the right skill, and hands off explicitly.
+> **v1.2.0.** Thin router for the `nanobc-*` skill family: detects the user's stage from filesystem evidence, offers the execution-mode fork (§0.6a), routes to the right skill/path, and hands off explicitly.
 
 ## Audience
 
@@ -58,13 +61,14 @@ This skill is a thin router. It does not duplicate logic from the other three `n
 
 | Path | Owner | Format | Notes |
 | --- | --- | --- | --- |
-| Run command | this skill | printed text | never executed without explicit confirmation (SP1) |
+| Run command (nextflow or bash-recipe mode, §0.6a) | this skill | printed text | never executed without explicit confirmation (SP1) |
 | Handoff message | this skill | printed text | names the next skill and the artifact it produces |
-| `$RUN_DIR/progress.log` | `track-progress.sh` | log | produced by the helper script, not by this skill itself |
+| `$RUN_DIR/progress.log` | `track-progress.sh` | log | produced by the helper script, not by this skill itself (nextflow mode only) |
+| `$OUTDIR/logging/manual_run_<ts>.log` | `run_basecalling.sh` (bash mode) | log | per-run transcript of the manual path, consumed by `nanobc-debug` |
 
 **Verdict gate**
 
-This skill **refuses to execute** `nextflow run` unless `$RUN_DIR/params.json` exists **and** `$RUN_DIR/params.rationale.md` records an overall verdict of `GO` or `GO-WITH-WARNINGS` (written by `nanobc-preflight`, see its §4). A `NO-GO` verdict stops the pipeline — route back to `nanobc-preflight` instead of running.
+This skill **refuses to execute** the pipeline — in either execution mode — unless `$RUN_DIR/params.json` exists **and** `$RUN_DIR/params.rationale.md` records an overall verdict of `GO` or `GO-WITH-WARNINGS` (written by `nanobc-preflight`, see its §4). A `NO-GO` verdict stops the pipeline — route back to `nanobc-preflight` instead of running.
 
 ### 0.2 Resolve the pipeline and run directory
 
@@ -116,7 +120,7 @@ If auto-detection is ambiguous (e.g. `params.json` exists but no `.nextflow.log`
 
 ### 0.5 Master ask-user stop points
 
-This skill has **three** user-facing stop points (SP0–SP2). All other stop points live in the sub-skills (`nanobc-preflight` §0.5, `nanobc-debug`, `nanobc-qc`). The pattern is **Evidence + Recommend + Options**; if the evidence is unambiguous, the agent auto-picks the default and proceeds silently.
+This skill has **four** user-facing stop points (SP0, SP1, SP1a, SP2). All other stop points live in the sub-skills (`nanobc-preflight` §0.5, `nanobc-debug`, `nanobc-qc`). The pattern is **Evidence + Recommend + Options**; if the evidence is unambiguous, the agent auto-picks the default and proceeds silently.
 
 #### SP0 — Entry-stage ambiguity
 
@@ -158,7 +162,26 @@ This skill has **three** user-facing stop points (SP0–SP2). All other stop poi
 
 **Do not skip preflight.** Even if the user supplies params manually, recommend running `nanobc-preflight` first — it's the only place Dorado's version and the kit/model choices get validated and recorded (Dorado has no pixi/conda pin, so this audit trail matters more here than for the pixi-managed tools).
 
-### 0.6 The run command (only fires at the `run` stage)
+### 0.6a The execution-mode fork (pick per run)
+
+The pipeline wraps the same Dorado/samtools steps in two execution modes, mirrored from the skillforge-style convention (**bash recipes = single-machine default; Nextflow runner = HPC / cohort / trace reports**):
+
+| Mode | When | Cost / requirement | Where |
+| --- | --- | --- | --- |
+| **Nextflow runner** (default on HPC, cohort runs) | SLURM/cluster execution, `-resume` caching, trace/report/timeline artifacts, `--transfer_dest` per-process retry semantics | Nextflow ≥ 23.04 on `$PATH` | `$NANOBC_HOME/main.nf` (§0.6) |
+| **Manual bash recipes** | single workstation, one-off runs, environments where Nextflow is unavailable or overkill (e.g. a quick 1–2 pod5-chunk basecall), or debugging a single step in isolation | bash + dorado on PATH (or `--dorado_bin`); samtools comes via the pinned pixi env on the barcoded path | `$NANOBC_HOME/runners/bash-recipes/run_basecalling.sh` (§0.7) |
+
+The two modes produce **identical output layouts** (LSK: `$OUTDIR/dorado_basecall_lsk/`; barcoded: `$OUTDIR/fastq/`), so `nanobc-qc` and `nanobc-debug` are mode-agnostic. The bash recipes are command-for-command mirrors of `modules/dorado.nf` — if one diverges, fix the pipeline first, then the recipes (same commit). The manual path has **no `-resume`**: re-running re-runs every pod5 chunk (it does not skip completed files), so for long or interruptible runs prefer the Nextflow runner.
+
+#### SP1a — execution mode
+
+| Trigger | Evidence check | Ask |
+| --- | --- | --- |
+| Stage is `run` and `params.json` does not record `execution_mode` | no mode pinned by preflight | "This run can execute via the Nextflow runner or the manual bash recipes — which? (nextflow / manual / let me pick)" with the §0.6a table as the evidence panel |
+
+**Auto-pick when**: (a) `params.json` already records `execution_mode` (written by `nanobc-preflight`, SP6) — honour it silently; (b) the user explicitly said "slurm/cluster/cohort" → `nextflow`; (c) the user explicitly said "without nextflow / bash / manual / quick" → `manual`; (d) neither signal and the run targets a workstation with ≤ 2 pod5 chunks and no cluster profile in play → recommend `manual`, ask only if the user hesitates. Never auto-pick `nextflow` on a machine where `nextflow` is not on `$PATH` — fall back to `manual` (and vice versa: no dorado binary → neither mode runs; stop and tell the user).
+
+### 0.6 The nextflow-runner command (mode = `nextflow`)
 
 ### Detect the user-side config override
 
@@ -201,7 +224,47 @@ If this is a `local`-profile run on the workstation, recommend forcing the fan t
 
 **There is no auto-restore** — the fan stays at max until `"$SKILL_DIR/gpu-fan.sh" auto` is run. When the run finishes (handoff to `nanobc-qc`), remind the user to run `auto` to hand the curve back to firmware. Skip entirely on `slurm` profiles (you don't control the compute node's fans).
 
-Ask (stop point **SP1**, §0.5): **"This will start a Nextflow run with the params above. OK to proceed? (yes / no / dry-run)"**
+Ask (stop point **SP1**, §0.5): **"This will start a basecalling run (mode from SP1a) with the params above. OK to proceed? (yes / no / dry-run)"**
+
+### 0.7 The manual bash-recipes command (mode = `manual`)
+
+The manual path is one script wrapping both kit paths plus the shared demux helper, in `$NANOBC_HOME/runners/bash-recipes/`:
+
+```bash
+# LSK kit (e.g. SQK-LSK114) — emits FASTQ directly per pod5 chunk:
+bash "$NANOBC_HOME/runners/bash-recipes/run_basecalling.sh" \
+  --pod5 "input_folder/N046/*.pod5" \
+  --model /path/to/dna_r10.4.1_e8.2_400bps_sup@v5.2.0 \
+  --kitname SQK-LSK114 \
+  --outdir "$OUTDIR"
+
+# Barcoded kit (e.g. SQK-RBK114) — basecalls to BAM, then demultiplexes
+# (same samtools+awk BC:Z logic as the bam2fq process, pinned pixi env):
+bash "$NANOBC_HOME/runners/bash-recipes/run_basecalling.sh" \
+  --pod5 "input_folder/N046/*.pod5" \
+  --model /path/to/dna_r10.4.1_e8.2_400bps_sup@v5.2.0 \
+  --kitname SQK-RBK114 \
+  --outdir "$OUTDIR"
+
+# Or consume the preflight params.json directly (keys = main.nf's schema):
+bash "$NANOBC_HOME/runners/bash-recipes/run_basecalling.sh" \
+  --params-file "$RUN_DIR/params.json"
+```
+
+Behaviour mirrors the Nextflow processes exactly:
+
+- Validation parity with `main.nf`: missing `--pod5`/`--model` aborts early; an unmatched pod5 glob aborts (`checkIfExists: true` parity); the dorado binary must be resolvable.
+- **LSK path** = `dorado_basecall_lsk`: `dorado basecaller -x cuda:all --emit-fastq MODEL POD5 | gzip`, published to `$OUTDIR/dorado_basecall_lsk/<id>.fastq.gz`, with `set -o pipefail` semantics and an explicit empty-output guard (the pipeline's #1 historical silent-failure mode).
+- **Barcoded path** = `dorado_basecall` + `bam2fq`: BAM per chunk in `$OUTDIR/`, then `demux_bam.sh` (samtools via the pinned `envs/samtools` pixi env) publishes `$OUTDIR/fastq/<barcode>.fastq.gz` incl. `unknown.fastq.gz`.
+- **Optional** `--transfer_dest user@host:/path` mirrors the `transfer` process (ssh mkdir + rsync), LSK only.
+- `concat_fastq` / `total_bases` are intentionally absent — they are off the shipped Nextflow DAG too.
+- A full transcript lands in `$OUTDIR/logging/manual_run_<timestamp>.log` — hand this file to `nanobc-debug` on failure instead of `.nextflow.log`.
+- No resume: completed chunks are re-run on retry. For interruptible/long runs recommend mode `nextflow` instead.
+- Hardware prerequisites are unchanged: dorado still needs a CUDA GPU and a model directory — the manual path removes Nextflow from the equation, not the GPU.
+
+**Validate before first use** (any machine, CPU-only, no dorado needed): `bash "$NANOBC_HOME/runners/bash-recipes/test_smoke.sh"` — checks recipe syntax, awk lock-step against `modules/dorado.nf`, and functionally demultiplexes a synthetic BC:Z BAM via the pinned samtools env.
+
+Then continue from the **Recommend preview** step below (for mode `manual` the analogue of `-preview` is the validation + the printed per-file plan), and apply SP1 confirmation as usual.
 
 ### Recommend preview for first-time users
 
@@ -274,7 +337,7 @@ The agentic layer follows a phased evidence chain. Each phase consumes the artif
 | # | Phase | Goal | Skill | Artifact produced |
 |:--|:------|:-----|:------|:------------------|
 | **1** | **Preflight** | Validate pod5/model/kit/GPU/cluster, write params | `nanobc-preflight` | `$RUN_DIR/params.json` + `params.rationale.md` (+ optional `nextflow.config.<env>.local`) |
-| **2** | **Run** | Execute `nextflow run` with the params | this skill | FASTQs under `$OUTDIR` (pipeline outputs) |
+| **2** | **Run** | Execute the run (mode from `params.json:execution_mode`: Nextflow runner §0.6 or manual bash recipes §0.7) | this skill | FASTQs under `$OUTDIR` (pipeline outputs, identical layouts in both modes) |
 | **3** | **Debug** | Interpret a failed run | `nanobc-debug` | `$RUN_DIR/diagnosis.md` (top-3 ranked hypotheses) |
 | **4** | **QC** | Check output integrity + read counts | `nanobc-qc` | `$RUN_DIR/report.md` (overall PASS / PASS-WITH-WARNINGS / FAIL) |
 
@@ -319,4 +382,4 @@ After routing, explicitly state which skill was invoked and which file it produc
 
 ## Provenance
 
-Part of the `nanobc` skill bundle (v1.1.0), authored following the [bioinfo-skill-creator](https://github.com/cheahhl814/bioinfo-skill-creator) meta-skill conventions (filesystem evidence chain, explicit stop points, verdict gates). Sibling skills: `nanobc-preflight`, `nanobc-debug`, `nanobc-qc`.
+Part of the `nanobc` skill bundle (v1.2.0), authored following the [bioinfo-skill-creator](https://github.com/cheahhl814/bioinfo-skill-creator) meta-skill conventions (filesystem evidence chain, explicit stop points, verdict gates) and the skillforge bash-recipes/nextflow-runner dual-path convention. Sibling skills: `nanobc-preflight`, `nanobc-debug`, `nanobc-qc`.

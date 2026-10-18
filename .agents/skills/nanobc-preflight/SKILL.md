@@ -1,8 +1,8 @@
 ---
 name: nanobc-preflight
 description: 'Prepare a Nextflow params.json for nf-nanopore-basecalling from a pod5 folder, a Dorado model, and a kit name, plus an optional machine-specific nextflow.config override. Validates the GPU is actually usable (nvidia-smi runs cleanly, no driver/library version mismatch, no pre-existing thermal throttling) before handing off to a run. Use when the user has raw pod5 files but has not yet decided --kitname / --model / --dorado_bin / execution profile, or wants to confirm the GPU is healthy before a long run.'
-version: 1.1.0
-updated: "2026-09-17"
+version: 1.2.0
+updated: "2026-10-18"
 triggers:
   - "set up nanopore basecalling"
   - "preflight basecalling"
@@ -18,7 +18,7 @@ triggers:
 
 # nanobc-preflight — nf-nanopore-basecalling parameter preparation
 
-> **v1.1.0.** Phase 1 of the `nanobc-*` bundle: validates pod5/model/kit/GPU/cluster evidence, then writes `params.json` + `params.rationale.md` (+ optional `nextflow.config.<env>.local`). It does **not** run the pipeline.
+> **v1.2.0.** Phase 1 of the `nanobc-*` bundle: validates pod5/model/kit/GPU/cluster evidence, then writes `params.json` + `params.rationale.md` (+ optional `nextflow.config.<env>.local`). It does **not** run the pipeline.
 
 ## Audience
 
@@ -84,7 +84,7 @@ test -f "$NANOBC_HOME/main.nf" || { echo "Cannot locate nf-nanopore-basecalling.
 
 ### 0.5 Ask-User Stop Points
 
-This sub-skill has **five** stop points (SP1–SP5). Each fires only when the evidence is ambiguous; the format is **Evidence + Recommend + Options**.
+This sub-skill has **six** stop points (SP1–SP6). Each fires only when the evidence is ambiguous; the format is **Evidence + Recommend + Options**.
 
 #### SP1 — Execution environment
 
@@ -125,6 +125,14 @@ This sub-skill has **five** stop points (SP1–SP5). Each fires only when the ev
 | Model path MISSING (§2c) | Model hasn't been downloaded yet | "Download it now (`$DORADO_BIN download --model <model>`), or did you mean a different model path?" |
 
 **Auto-pick when**: never invent a model name; if the user names a different existing path, use it.
+
+#### SP6 — Execution mode
+
+| Trigger | Evidence check | Ask |
+| --- | --- | --- |
+| `execution_mode` undecided after the pipeline/recipe prerequisites are checked | `nextflow` on PATH AND dorado resolvable → both modes viable | "Nextflow runner or manual bash recipes for this run? (nextflow / manual)" — cite `$NANOBC_HOME/runners/bash-recipes/README.md` for the trade-off table |
+
+**Auto-pick when**: (a) only one mode's prerequisites hold (`nextflow` absent → `manual`; dorado absent → neither — stop, resolve before preflight completes); (b) the user said "cluster/slurm/cohort" → `nextflow`; (c) the user said "without nextflow / manual / bash" → `manual`. The chosen mode is written to `params.json:execution_mode` and honoured silently by `nanobc-run` (its SP1a).
 
 #### Operating rule
 
@@ -421,12 +429,14 @@ When an evidence step itself fails, match against these patterns. **Always** rea
   "kitname":       "SQK-LSK114",
   "model":         "/abs/path/to/dna_r10.4.1_e8.2_400bps_sup@v5.2.0",
   "dorado_bin":    "dorado",
-  "transfer_dest": ""
+  "transfer_dest": "",
+  "execution_mode": "nextflow"
 }
 ```
 
-- All six keys are required by `main.nf`'s defaults, but only `pod5` and `model` are enforced (main.nf exits early if either is empty) — always fill in all six anyway for a self-documenting params file.
+- All six `main.nf` keys are required by `main.nf`'s defaults, but only `pod5` and `model` are enforced (main.nf exits early if either is empty) — always fill in all six anyway for a self-documenting params file.
 - Use absolute paths for `pod5`, `model`, `outdir` — the pod5 glob is expanded by Nextflow at the launch working directory, and a relative glob silently breaks if the run is later resumed from a different cwd.
+- `execution_mode` is a bundle-level key (not read by `main.nf`): `"nextflow"` or `"manual"` (SP6). `"manual"` routes `nanobc-run` to `$NANOBC_HOME/runners/bash-recipes/run_basecalling.sh --params-file params.json` instead of `nextflow run`.
 
 ### `nextflow.config.<env>.local` (only if §2.5 found a mismatch or the user wants one)
 
@@ -465,6 +475,7 @@ Pipeline:  $NANOBC_HOME (commit <hash if available>)
 - --model <path>: verified present on disk
 - --dorado_bin <path>: <on PATH | absolute path supplied>
 - --transfer_dest <value or "(skipped)">: <reason>
+- execution_mode: <nextflow | manual> — <one-line why (SP6 evidence)>
 
 ## Warnings
 - (none, or list any that fired)
@@ -477,9 +488,14 @@ Pipeline:  $NANOBC_HOME (commit <hash if available>)
 
 ## Run command
 \`\`\`bash
+# execution_mode = nextflow:
 cd "$NANOBC_HOME"
 nextflow run main.nf -profile <env> [-c nextflow.config.<env>.local] -params-file params.json
+
+# execution_mode = manual (same params, bash-recipes runner):
+bash "$NANOBC_HOME/runners/bash-recipes/run_basecalling.sh" --params-file "$RUN_DIR/params.json"
 \`\`\`
+(emit only the branch matching the chosen execution_mode)
 ```
 
 ## 5. What NOT to do
@@ -494,7 +510,7 @@ nextflow run main.nf -profile <env> [-c nextflow.config.<env>.local] -params-fil
 
 ## Verification
 
-- [ ] `$RUN_DIR/params.json` exists, is valid JSON, carries all six keys, and uses absolute paths for `pod5` / `model` / `outdir`.
+- [ ] `$RUN_DIR/params.json` exists, is valid JSON, carries all six `main.nf` keys plus `execution_mode`, and uses absolute paths for `pod5` / `model` / `outdir`.
 - [ ] `$RUN_DIR/params.rationale.md` exists with Evidence / Environment / Config override / Decisions / Warnings / **Overall verdict** sections filled.
 - [ ] `dorado --version` output is recorded in the rationale (the only Dorado audit trail — it is not pixi/conda-pinned).
 - [ ] Kit name was confirmed back with the user and its routing (LSK vs barcode-demux) is stated in the rationale.

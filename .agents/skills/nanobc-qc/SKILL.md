@@ -1,8 +1,8 @@
 ---
 name: nanobc-qc
 description: 'Quality-check a finished nf-nanopore-basecalling run''s output — FASTQ integrity, per-barcode read counts, unclassified fraction, and (for LSK runs) transfer completion. Use after a successful nextflow run when the user wants to know if the basecalling/demux output looks sane.'
-version: 1.1.0
-updated: "2026-09-17"
+version: 1.2.0
+updated: "2026-10-18"
 triggers:
   - "nanobc QC"
   - "check basecalling output"
@@ -14,7 +14,9 @@ triggers:
 
 # nanobc-qc — nf-nanopore-basecalling post-run quality control
 
-> **v1.1.0.** Final phase of the `nanobc-*` bundle: checks a finished run's output integrity (FASTQ integrity, per-barcode base/read counts, unclassified fraction, transfer completion) and writes `$RUN_DIR/report.md`. It never re-runs the pipeline.
+> **v1.2.0.** Final phase of the `nanobc-*` bundle: checks a finished run's output integrity (FASTQ integrity, per-barcode base/read counts, unclassified fraction, transfer completion) and writes `$RUN_DIR/report.md`. It never re-runs the pipeline.
+>
+> **Mode-agnostic (v1.2.0):** QC operates on the output tree, not the executor. The Nextflow runner and the manual bash-recipes path (`run_basecalling.sh`) publish **identical layouts** — LSK: `$OUTDIR/dorado_basecall_lsk/`; barcoded: `$OUTDIR/fastq/` incl. `unknown` — so every check below applies to either mode unchanged. The only mode-dependent bit is failure triage on a QC `FAIL`: route by `params.json:execution_mode` (`manual` → the recipe transcript under `$OUTDIR/logging/`; `nextflow` → `.nextflow.log` + work dirs).
 
 ## Audience
 
@@ -285,7 +287,7 @@ The §3 threshold bands (e.g. 10%/30% unclassified) are **heuristic sanity promp
 
 ## 6. Handoff
 
-- If unclassified fraction is high or a barcode is missing entirely → recommend the user re-invoke `nanobc-preflight` with a corrected `--kitname`/`--model`, then `nextflow run -resume`
+- If unclassified fraction is high or a barcode is missing entirely → recommend the user re-invoke `nanobc-preflight` with a corrected `--kitname`/`--model`, then re-run (mode per `params.json:execution_mode`: `nextflow run -resume`, or `run_basecalling.sh` for the manual path)
 - If FASTQ integrity fails (corrupt file) or a process didn't complete → hand off to `nanobc-debug`
 - If everything passes → point the user to `$RUN_DIR/report.md` and the published outputs under `$OUTDIR`
 

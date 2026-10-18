@@ -6,6 +6,12 @@ results/
 output_*/
 *.checkpoint
 
+# forge/battle-test run artifacts (per-run, regenerable — never pushed)
+battle-test-report.md
+preflight.md
+preflight_evidence.txt
+skill-built.md
+
 # pixi
 .pixi/
 nf-nanopore-basecalling/envs/*/.pixi/
