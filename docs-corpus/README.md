@@ -9,6 +9,7 @@ are never hallucinated from memory.
 
 | Phase | Tool | Directory | Source (fallback level) |
 |------|-----------|------|------|
+| run (both modes) | dorado models (download/selection/discovery) | `dorado/models.md` | #2 — condensed capture of the ONT software-docs downloader/selection pages (host-enumerable via `dorado download --list`) |
 | run (both modes) | dorado | `dorado/` | #2 — verbatim GitHub README capture (no conda/pixi package; not installable on corpus-build hosts, so `--help` capture unavailable) |
 | run (barcoded path) | samtools | `samtools/` | #1 — verbatim capture of the **pinned** env (`pixi run --manifest-path runners/nextflow-runner/envs/samtools/pixi.toml samtools --help` / `view --help`, samtools 1.24) |
 | run | seqtk | `seqtk/` | #1 — verbatim capture of the pinned env (`seqtk 1.5`, usage listing) |

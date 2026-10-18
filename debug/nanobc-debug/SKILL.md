@@ -1,7 +1,7 @@
 ---
 name: nanobc-debug
 description: 'Interpret a failed nf-nanopore-basecalling Nextflow run, including CUDA/GPU errors, NVIDIA driver/library version mismatches, GPU thermal throttling, Dorado model/kit errors, pixi env issues, and SLURM partition/gres mismatches. Use when nextflow log shows ERR, exit status 1, exit 137 (OOM-kill), a Dorado/samtools/seqtk/transfer process failed, or a run is unexpectedly slow.'
-version: 2.1.0
+version: 2.1.1
 updated: "2026-10-18"
 triggers:
   - "basecalling failed"
@@ -21,7 +21,7 @@ triggers:
 
 # nanobc-debug — nf-nanopore-basecalling failure interpreter
 
-> **v2.1.0** — adds the preflight live hardware inventory (`hw-inventory.sh` → `params.rationale.md`, machine identities barred) and the `assets/models/` model home; **v2.0.0** restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Reactive failure interpreter for the `nanobc-*` bundle: reads the run history + work-dir evidence (either execution mode), ranks the top-3 hypotheses, and writes `$RUN_DIR/diagnosis.md` with concrete fix options. It does **not** re-run the pipeline.
+> **v2.1.1** — documents grounded model-download mechanics (`dorado download --list` / `--models-directory`, path-based-selection caveat) in docs-corpus/dorado/models.md; **v2.1.0** adds the preflight live hardware inventory (`hw-inventory.sh` → `params.rationale.md`, machine identities barred) and the `assets/models/` model home; **v2.0.0** restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Reactive failure interpreter for the `nanobc-*` bundle: reads the run history + work-dir evidence (either execution mode), ranks the top-3 hypotheses, and writes `$RUN_DIR/diagnosis.md` with concrete fix options. It does **not** re-run the pipeline.
 
 ## Audience
 

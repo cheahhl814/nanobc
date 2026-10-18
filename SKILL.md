@@ -1,7 +1,7 @@
 ---
 name: nanobc
 description: 'Dorado-based Nanopore basecalling agent skill: preflight → run → qc, with a signature-library debug phase, over a dual execution path (Nextflow DSL2 runner for HPC/cohort; manual bash recipes for single-machine/no-Nextflow) and a CPU-only smoke-test harness. Use when the user wants to basecall pod5 files, pick a Dorado model/kit, check GPU health, verify a demultiplexed FASTQ output, or fix a failed basecalling run. Triggers: "basecall pod5", "nanopore basecalling", "dorado model", "run basecalling pipeline", "basecalling failed", "check demux fastqs".'
-version: 2.1.0
+version: 2.1.1
 updated: "2026-10-18"
 triggers:
   - "run the basecalling pipeline"

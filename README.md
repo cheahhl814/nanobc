@@ -1,6 +1,6 @@
 # nanobc
 
-[![Version](https://img.shields.io/badge/version-2.1.0-blue)](#-installation)
+[![Version](https://img.shields.io/badge/version-2.1.1-blue)](#-installation)
 [![Built with](https://img.shields.io/badge/built%20with-skill--forge-orange)](https://github.com/cheahhl814/skill-forge)
 [![Shape](https://img.shields.io/badge/shape-dual--path%20pipeline%20skill-8A2BE2)](#-pipeline-overview)
 
@@ -15,7 +15,7 @@ source of truth) for HPC/cohort runs and **manual bash recipes**
 **Repository**: https://github.com/cheahhl814/nanobc
 
 > [!NOTE]
-> Skill **v2.1.0** — adds the preflight **live hardware inventory** (`hw-inventory.sh` →
+> Skill **v2.1.1** — adds the preflight **live hardware inventory** (`hw-inventory.sh` →
 > `params.rationale.md`: hardware claims are re-derived per run, machine identities barred from tracked files)
 > and the **`assets/models/`** home for downloaded Dorado models (gitignored). Predecessors: **v2.0.0**
 > (restructured from the v1.2.x `.agents/skills/` bundle

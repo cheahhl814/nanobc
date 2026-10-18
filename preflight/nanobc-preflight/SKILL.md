@@ -1,7 +1,7 @@
 ---
 name: nanobc-preflight
 description: 'Prepare a Nextflow params.json for nf-nanopore-basecalling from a pod5 folder, a Dorado model, and a kit name, plus an optional machine-specific nextflow.config override. Validates the GPU is actually usable (nvidia-smi runs cleanly, no driver/library version mismatch, no pre-existing thermal throttling) before handing off to a run. Use when the user has raw pod5 files but has not yet decided --kitname / --model / --dorado_bin / execution profile, or wants to confirm the GPU is healthy before a long run.'
-version: 2.1.0
+version: 2.1.1
 updated: "2026-10-18"
 triggers:
   - "set up nanopore basecalling"
@@ -18,7 +18,7 @@ triggers:
 
 # nanobc-preflight — nf-nanopore-basecalling parameter preparation
 
-> **v2.1.0** — adds the preflight live hardware inventory (`hw-inventory.sh` → `params.rationale.md`, machine identities barred) and the `assets/models/` model home; **v2.0.0** restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Phase 1 of the `nanobc-*` bundle: validates pod5/model/kit/GPU/cluster evidence, then writes `params.json` + `params.rationale.md` (+ optional `nextflow.config.<env>.local`). It does **not** run the pipeline.
+> **v2.1.1** — documents grounded model-download mechanics (`dorado download --list` / `--models-directory`, path-based-selection caveat) in docs-corpus/dorado/models.md; **v2.1.0** adds the preflight live hardware inventory (`hw-inventory.sh` → `params.rationale.md`, machine identities barred) and the `assets/models/` model home; **v2.0.0** restructured into the skill-forge layout: this sub-skill now lives under its phase directory (`preflight/`, `run/`, `debug/`, `qc/`) beneath the skill root (`$NANOBC_HOME`), and the pipeline at `$NANOBC_HOME/runners/nextflow-runner/`. Phase 1 of the `nanobc-*` bundle: validates pod5/model/kit/GPU/cluster evidence, then writes `params.json` + `params.rationale.md` (+ optional `nextflow.config.<env>.local`). It does **not** run the pipeline.
 
 ## Audience
 
@@ -123,7 +123,7 @@ This sub-skill has **six** stop points (SP1–SP6). Each fires only when the evi
 
 | Trigger | Evidence check | Ask |
 | --- | --- | --- |
-| Model path MISSING (§2c) | Model hasn't been downloaded yet | "Download it now — recommend `$DORADO_BIN download --model <model>` into `$NANOBC_HOME/assets/models/` (this skill's asset home, gitignored), or did you mean a different model path?" |
+| Model path MISSING (§2c) | Model hasn't been downloaded yet | "Download it now — recommend `$DORADO_BIN download --list` first (models available on this Dorado), then `$DORADO_BIN download --model <name> --models-directory $NANOBC_HOME/assets/models/` (this skill's gitignored asset home — mechanics in docs-corpus/dorado/models.md), or did you mean a different model path?" |
 
 **Auto-pick when**: never invent a model name; if the user names a different existing path, use it.
 
@@ -186,13 +186,17 @@ Because Dorado has no conda/pixi package, its version is **not** pinned anywhere
 MODEL="dna_r10.4.1_e8.2_400bps_sup@v5.2.0"   # from user, may be relative or absolute
 if [ ! -e "$MODEL" ]; then
   echo "WARNING: model path '$MODEL' does not exist relative to cwd."
-  echo "If it hasn't been downloaded yet, try: $DORADO_BIN download --model $MODEL"
-  echo "  (recommended download root: $NANOBC_HOME/assets/models/ — see assets/README.md)"
-  echo "(check '$DORADO_BIN download --help' for exact flags — they vary by Dorado version)"
+  echo "If it hasn't been downloaded yet, try:"
+  echo "  $DORADO_BIN download --list                                    # models available on THIS dorado"
+  echo "  $DORADO_BIN download --model <name> --models-directory $NANOBC_HOME/assets/models"
+  echo "  (docs-corpus/dorado/models.md — download/selection/discovery mechanics,
+   incl. --models-directory default-to-cwd and the ephemeral auto-download warning)"
 fi
 ```
 
 Never invent a model name. If the user is unsure which model matches their flow cell/kit, ask them to check the sequencing run report or `$DORADO_BIN download --list` (or equivalent for their installed version) rather than guessing.
+
+**Model provisioning mechanics (grounded — docs-corpus/dorado/models.md)**: `dorado download --models-directory` controls the destination (**default is the CWD** — always pass it, nanobc's home is `$NANOBC_HOME/assets/models/`); `--data pod5s/` auto-selects models from pod5 headers. **nanobc uses path-based model selection** (`params.json:model` is a directory path), so the `basecaller` never auto-downloads — the model must be on disk BEFORE the run (this §2c gate). If Name/Variant selection is ever adopted instead, always set `--models-directory` or `DORADO_MODELS_DIRECTORY`: without them Dorado downloads to a temp location and DELETES it after every run.
 
 ### d) Kit name sanity check
 
